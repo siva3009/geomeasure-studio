@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: geomeasure-backend
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: free
+    region: oregon
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: "http://localhost:5173,https://geomeasure-studio.vercel.app"
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "50"
+      - key: MAX_DECOMPRESSED_SIZE_MB
+        value: "200"

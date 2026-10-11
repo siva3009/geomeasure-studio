@@ -1,0 +1,99 @@
+"""
+Database connection management and table initialization.
+Uses psycopg2 for synchronous PostgreSQL access to Supabase.
+"""
+
+import psycopg2
+import psycopg2.extras
+import logging
+from contextlib import contextmanager
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Register UUID adapter for psycopg2
+psycopg2.extras.register_uuid()
+
+# SQL for creating tables
+CREATE_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS uploaded_files (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    original_filename TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    file_size_bytes INTEGER NOT NULL,
+    source_crs TEXT,
+    feature_count INTEGER,
+    status TEXT NOT NULL DEFAULT 'processing',
+    error_message TEXT,
+    geojson JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS measurements (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    file_id UUID NOT NULL REFERENCES uploaded_files(id) ON DELETE CASCADE,
+    feature_index INTEGER NOT NULL,
+    feature_id TEXT,
+    geometry_type TEXT NOT NULL,
+    geometry_wkt TEXT,
+    source_crs TEXT,
+    measurement_crs TEXT,
+    area_sq_meters DOUBLE PRECISION,
+    length_meters DOUBLE PRECISION,
+    measurement_unit TEXT DEFAULT 'meters',
+    properties JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_measurements_file_id ON measurements(file_id);
+"""
+
+
+def get_connection():
+    """Create a new database connection."""
+    try:
+        conn = psycopg2.connect(
+            settings.database_url,
+            connect_timeout=settings.db_connect_timeout,
+        )
+        return conn
+    except psycopg2.Error as e:
+        logger.error(f"Database connection failed: {e}")
+        raise
+
+
+@contextmanager
+def get_db():
+    """Context manager for database connections with auto-commit/rollback."""
+    conn = get_connection()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def init_db():
+    """Initialize database tables. Called on application startup."""
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(CREATE_TABLES_SQL)
+        logger.info("Database tables initialized successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise
+
+
+def check_db_connection() -> bool:
+    """Check if the database is reachable. Used by health endpoint."""
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                return True
+    except Exception:
+        return False
