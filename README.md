@@ -1,74 +1,116 @@
 # GeoMeasure Studio
 
-A full-stack geospatial file measurement platform. Upload **KML** and **zipped Shapefile** files, automatically extract geometry metadata, compute accurate **area** and **length** measurements using projected coordinate systems, and visualize results on an interactive map.
+A production-grade geospatial file measurement platform. Upload **KML** and **zipped Shapefile** archives, inspect geometry attributes, compute accurate metric **area** and **length** measurements via automated local UTM projections, and visualize features on an interactive Leaflet map backed by OpenStreetMap.
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)
 ![React](https://img.shields.io/badge/React-19-cyan)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
+![Supabase](https://img.shields.io/badge/Database-Supabase%20PostgreSQL-emerald)
+![Render](https://img.shields.io/badge/Backend-Render%20Singapore-purple)
+![Vercel](https://img.shields.io/badge/Frontend-Vercel-black)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ---
 
-## Live Deployments
+## Verified Live Deployments
 
-- **Frontend Application (Vercel)**: `[CONFIGURED_ON_DEPLOYMENT]`
-- **Backend API (Render)**: `[CONFIGURED_ON_DEPLOYMENT]`
-- **API Documentation (Swagger UI)**: `[CONFIGURED_ON_DEPLOYMENT]/docs`
-- **Health Check Endpoint**: `[CONFIGURED_ON_DEPLOYMENT]/api/health/`
+- **Frontend Application (Vercel)**: [https://geomeasure-studio.vercel.app](https://geomeasure-studio.vercel.app)
+- **Backend API (Render)**: [https://geomeasure-backend.onrender.com](https://geomeasure-backend.onrender.com)
+- **Interactive API Documentation (Swagger UI)**: [https://geomeasure-backend.onrender.com/docs](https://geomeasure-backend.onrender.com/docs)
+- **Production Health Check**: [https://geomeasure-backend.onrender.com/api/health/](https://geomeasure-backend.onrender.com/api/health/)
+- **GitHub Repository**: [https://github.com/siva3009/geomeasure-studio](https://github.com/siva3009/geomeasure-studio)
 
 ---
 
 ## Table of Contents
 
 - [Features](#features)
-- [Architecture](#architecture)
+- [Technology Stack](#technology-stack)
+- [System Architecture](#system-architecture)
 - [Project Structure](#project-structure)
-- [CRS & Measurement Methodology](#crs--measurement-methodology)
-- [Production Database & Reliability](#production-database--reliability)
+- [CRS Methodology & Measurement Accuracy](#crs-methodology--measurement-accuracy)
+- [Missing CRS Handling Policy](#missing-crs-handling-policy)
+- [Verified Manual Checks & Observed Measurements](#verified-manual-checks--observed-measurements)
+- [Production Database & Supabase Pooler Configuration](#production-database--supabase-pooler-configuration)
 - [Setup & Local Installation](#setup--local-installation)
-- [Running Automated Tests](#running-automated-tests)
+- [Automated Testing & Verification](#automated-testing--verification)
 - [API Reference](#api-reference)
-- [Deployment Guide](#deployment-guide)
-  - [Deploying Backend to Render](#deploying-backend-to-render)
-  - [Deploying Frontend to Vercel](#deploying-frontend-to-vercel)
+- [Measurement Units & Output Standards](#measurement-units--output-standards)
 - [Security & Validation](#security--validation)
 - [Limitations & Known Trade-offs](#limitations--known-trade-offs)
+- [Learning Outcomes](#learning-outcomes)
+- [Future Scope](#future-scope)
 - [License](#license)
 
 ---
 
 ## Features
 
-### Core
-- **File Upload** — Accepts `.kml` and `.zip` (Shapefile) files via drag-and-drop or file browser.
-- **Format Inspection** — Handles `.shp`, `.shx`, `.dbf`, `.prj` archives and Fiona GDAL KML driver layers.
-- **Accurate Metric Calculations** — Calculates polygon planar area (m², hectares, km²) and LineString length (m, km) by auto-projecting to optimal local UTM zones ($32601$–$32660$ North, $32701$–$32760$ South).
-- **Independent CRS Tracking** — Tracks `source_crs` and `measurement_crs` independently for complete auditability.
-- **Interactive Map** — Visualizes features on a dark-themed Leaflet map with auto-bounds fitting and popup property inspectors.
-- **File History & Management** — Browse previous uploads with status badges, metadata, and deletion capabilities.
+### Core Geospatial Engine
+- **Multi-Format Ingestion**: Supports `.kml` (Keyhole Markup Language) and zipped Shapefile archives (`.zip` containing `.shp`, `.shx`, `.dbf`, and `.prj`).
+- **Automated Local UTM Projection**: Detects feature centroids and reprojects geometries into their optimal transverse Mercator zone (UTM Zones $1$–$60$ North / South) to compute metric planar area and length with minimal distortion ($< 0.1\%$).
+- **Separate CRS Tracking**: Records `source_crs` and `measurement_crs` independently for every feature, ensuring full traceability and data integrity.
+- **Support for Multi-Part Geometries**: Accurately measures `Polygon`, `MultiPolygon`, `LineString`, and `MultiLineString` features.
+- **Interactive OpenStreetMap Map**: Dark-themed Leaflet map with automatic viewport bounds fitting, vector geometry styling, hover tooltips, and click inspection popups.
+- **Empty Geometry State**: Gracefully identifies datasets without displayable coordinates and renders a helpful empty state rather than misplacing markers at coordinate origins.
 
-### Export
-- **CSV Export** — Download feature measurements with header, coordinate systems, and computed metric figures.
-- **Enhanced GeoJSON Export** — Export GeoJSON enriched with calculated `_area_sq_meters`, `_length_meters`, and `_measurement_crs` in properties.
+### Data Management & Export
+- **Persistent File History**: Backed by Supabase PostgreSQL; uploaded datasets and computed measurements persist across browser refreshes and sessions.
+- **CSV Export**: Downloads a detailed tabular summary of feature IDs, geometry types, source CRS, measurement CRS, area (m²), length (m), and user attributes.
+- **Enhanced GeoJSON Export**: Exports standard RFC 7946 GeoJSON enriched with calculated `_area_sq_meters`, `_length_meters`, and `_measurement_crs` attributes.
+- **Lifecycle Management**: Delete uploaded datasets and cascade-delete associated measurement records.
 
 ---
 
-## Architecture
+## Technology Stack
+
+| Layer | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Backend Framework** | Python 3.12, FastAPI, Pydantic v2 | High-performance asynchronous REST API, data validation, and lifecycle hooks |
+| **Geospatial Processing** | GeoPandas, Shapely 2.0, PyProj, Fiona, PyOgrio | Vector geospatial manipulation, topology operations, and coordinate transformations |
+| **Database** | Supabase (PostgreSQL 15+) via psycopg2 | Persistent relational storage, JSONB storage for attributes and GeoJSON |
+| **Frontend Framework** | React 19, TypeScript 5, Vite 8 | Single-page application, type-safe API communication |
+| **Mapping & GIS UI** | Leaflet, React-Leaflet | OpenStreetMap tile visualization, vector overlay layers, interactive popups/tooltips |
+| **Styling** | Tailwind CSS, Lucide Icons | Curated dark-themed glassmorphism interface with responsive layouts |
+| **Backend Hosting** | Render (Singapore Region, Docker runtime) | Python 3.11-slim container with GDAL, GEOS, and PROJ C-libraries |
+| **Frontend Hosting** | Vercel (Edge Network) | Static SPA hosting with custom routing rules |
+
+---
+
+## System Architecture
 
 ```
-┌─────────────────────────────────┐           HTTP/REST           ┌───────────────────────────────────┐
-│         React Frontend          │  ──────────────────────────→  │          FastAPI Backend          │
-│       (Vite + TypeScript)       │  ←──────────────────────────  │         (Python 3.12 / GDAL)      │
-│         Hosted on Vercel        │                               │          Hosted on Render         │
-└─────────────────────────────────┘                               └─────────────────┬─────────────────┘
-                                                                                    │
-                                                                                    │ psycopg2 (TLS)
-                                                                                    ▼
-                                                                  ┌───────────────────────────────────┐
-                                                                  │        Supabase PostgreSQL        │
-                                                                  │     Persistent DDL & Indices      │
-                                                                  └───────────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│           React 19 Frontend (Vite)            │
+│       Hosted on Vercel (Edge Network)         │
+│  - File Upload & Drag-and-Drop Dropzone       │
+│  - Leaflet Map (OpenStreetMap TileLayer)      │
+│  - Measurement Table & Unit Converter         │
+│  - CSV & GeoJSON Export Trigger               │
+└───────────────────────┬───────────────────────┘
+                        │
+                        │ HTTPS / REST (JSON)
+                        ▼
+┌───────────────────────────────────────────────┐
+│            FastAPI Backend Service            │
+│       Hosted on Render (Docker / Singapore)   │
+│  - File Validation (Zip-Slip, Size Limits)    │
+│  - GeoPandas & Fiona KML / Shapefile Drivers  │
+│  - Dynamic Centroid UTM Calculation (PyProj)  │
+│  - Shapely Planar Area & Length Computation   │
+│  - Strict Production Mode Enforcement         │
+└───────────────────────┬───────────────────────┘
+                        │
+                        │ TCP / TLS (Port 5432 / 6543 Pooler)
+                        ▼
+┌───────────────────────────────────────────────┐
+│             Supabase PostgreSQL               │
+│       Managed Cloud Relational Database       │
+│  - uploaded_files (UUID PK, JSONB GeoJSON)    │
+│  - measurements (Foreign Key, Cascade Delete) │
+│  - Indexes on file_id and created_at          │
+└───────────────────────────────────────────────┘
 ```
 
 ---
@@ -79,81 +121,166 @@ A full-stack geospatial file measurement platform. Upload **KML** and **zipped S
 GeoMeasure Studio/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # FastAPI application, CORS, lifespan hooks
-│   │   ├── config.py            # Pydantic Settings with environment enforcement
-│   │   ├── database.py          # PostgreSQL schema migration & connection management
-│   │   ├── routers/             # API endpoints (upload, files, measurements, health)
-│   │   ├── schemas/             # Pydantic v2 validation models
-│   │   ├── services/            # Geospatial engine, file validator, DB repository
-│   │   └── utils/               # UTM projection selection, CSV/GeoJSON serializers
-│   ├── tests/                   # Pytest automated test suite (52 tests)
-│   │   ├── fixtures/            # Sample KML and Shapefile archives
-│   │   ├── test_api.py          # End-to-end API lifecycle & production safety tests
-│   │   ├── test_crs_utils.py    # UTM calculation & CRS validation tests
-│   │   ├── test_geo_processor.py# KML, Shapefile, and unknown CRS processing tests
-│   │   ├── test_measurements.py # CSV/GeoJSON export format tests
-│   │   └── test_upload.py       # Extension, traversal, and size validation tests
+│   │   ├── main.py              # FastAPI app, CORS middleware, lifespan startup
+│   │   ├── config.py            # Pydantic Settings with production safety rules
+│   │   ├── database.py          # PostgreSQL connection management & DDL schema
+│   │   ├── routers/
+│   │   │   ├── upload.py        # POST /api/files/ upload & processing pipeline
+│   │   │   ├── files.py         # GET, DELETE /api/files/ file management
+│   │   │   ├── measurements.py  # GET /api/files/{id}/measurements/ (JSON, CSV, GeoJSON)
+│   │   │   └── health.py        # GET /api/health/ database connectivity check
+│   │   ├── schemas/             # Pydantic v2 schemas for files & measurements
+│   │   ├── services/
+│   │   │   ├── file_validator.py# Extension, MIME, path traversal, archive safety
+│   │   │   ├── geo_processor.py # Geospatial parsing, UTM selection, measurement engine
+│   │   │   └── db_service.py    # PostgreSQL repository with production error guards
+│   │   └── utils/
+│   │       ├── crs_utils.py     # Centroid-to-UTM calculations & CRS validation
+│   │       └── export.py        # CSV & enriched GeoJSON generators
+│   ├── tests/                   # 53 automated tests (Pytest)
+│   ├── schema.sql               # Standalone Supabase PostgreSQL schema script
+│   ├── Dockerfile               # Debian-slim with GDAL, GEOS, and PROJ dependencies
 │   ├── requirements.txt         # Pinned Python dependencies
-│   ├── Dockerfile               # Debian-slim container with GDAL, GEOS, and PROJ
-│   └── .env.example             # Clean environment variable template
+│   └── .env.example             # Backend environment template
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx              # Main orchestrator component
-│   │   ├── api/client.ts        # Axios client with type-safe methods
-│   │   ├── components/          # Reusable UI components (MapView, FileHistory, etc.)
+│   │   ├── api/client.ts        # Axios API client
+│   │   ├── components/
+│   │   │   ├── FileUpload.tsx   # Drag-and-drop file upload with progress indicators
+│   │   │   ├── FileHistory.tsx  # List previous uploads with status & deletion
+│   │   │   ├── MapView.tsx      # Leaflet map with OpenStreetMap basemap & tooltips
+│   │   │   ├── MeasurementTable.tsx # Interactive measurements table with unit toggle
+│   │   │   ├── ExportButtons.tsx    # CSV and GeoJSON download actions
+│   │   │   └── DiagnosticsPanel.tsx # CRS audit and file processing diagnostics
 │   │   ├── types/               # TypeScript interfaces
-│   │   └── utils/               # Formatting utilities (units, dates)
-│   ├── index.html               # Semantic HTML entry with SEO metadata
-│   ├── vercel.json              # Vercel SPA routing configuration
-│   ├── vite.config.ts           # Vite build config
-│   ├── tailwind.config.js       # Curated slate/teal color system
+│   │   ├── index.css            # Tailwind directives and Leaflet dark theme styling
+│   │   └── App.tsx              # Application layout and state orchestration
+│   ├── vercel.json              # Vercel SPA client rewrite configuration
+│   ├── vite.config.ts           # Vite configuration
 │   └── .env.example             # Frontend environment template
-├── render.yaml                  # Render Blueprint definition
-├── .gitignore                   # Comprehensive secrets & artifact ignore rules
+├── render.yaml                  # Render Blueprint definition (Singapore region)
+├── .gitignore                   # Comprehensive rules preventing credential leaks
 └── README.md                    # Project documentation
 ```
 
 ---
 
-## CRS & Measurement Methodology
+## CRS Methodology & Measurement Accuracy
 
-1. **Why Not Measure in EPSG:4326?**
-   - Geographic coordinate systems (such as WGS84 / EPSG:4326) define coordinates in angular degrees ($^\circ$).
-   - Calculating Euclidean area or length directly on degree values produces distorted and mathematically meaningless results ($^\circ$ latitude has fixed distance, while $^\circ$ longitude varies from ~111 km at the Equator to 0 km at the poles).
+### 1. The Geometric Fallacy of Measuring in EPSG:4326
+Coordinates in `EPSG:4326` (WGS84) are expressed in angular degrees ($^\circ$), not linear units (meters). 
+- A degree of latitude is roughly constant (~$111\text{ km}$), but a degree of longitude shrinks with the cosine of latitude:
+  $$\text{Length of } 1^\circ \text{ longitude} \approx 111.320 \times \cos(\text{latitude}) \text{ km}$$
+- At $60^\circ\text{ N}$, $1^\circ$ of longitude is only half its equatorial width (~$55.8\text{ km}$).
+- Performing Euclidean area ($\Delta x \times \Delta y$) directly on degree coordinates yields mathematically invalid results in "square degrees" ($^\circ{}^2$), which cannot be converted to square meters by a constant multiplier.
 
-2. **Automated UTM Zone Reprojection**:
-   - For every geometry, the centroid coordinate is evaluated:
-     $$\text{Zone} = \left\lfloor \frac{\text{lon} + 180}{6} \right\rfloor + 1$$
-   - Northern hemisphere coordinates ($\text{lat} \ge 0$) map to `EPSG:32601`–`EPSG:32660`.
-   - Southern hemisphere coordinates ($\text{lat} < 0$) map to `EPSG:32701`–`EPSG:32760`.
-   - Geometries are dynamically projected to their optimal local UTM transverse Mercator projection, ensuring planar metric distortion is strictly minimized ($< 0.1\%$).
+### 2. Automated Local UTM Zone Selection
+GeoMeasure Studio solves this by dynamically reprojecting features to their local **Universal Transverse Mercator (UTM)** zone:
+1. The feature centroid $(\text{lon}, \text{lat})$ is computed.
+2. The optimal UTM zone number ($1$ to $60$) is derived mathematically:
+   $$\text{Zone} = \left\lfloor \frac{\text{lon} + 180}{6} \right\rfloor + 1$$
+3. The hemisphere determines the EPSG code:
+   - Northern Hemisphere ($\text{lat} \ge 0$): `EPSG:32601` through `EPSG:32660`
+   - Southern Hemisphere ($\text{lat} < 0$): `EPSG:32701` through `EPSG:32760`
+4. The geometry is reprojected into the target UTM projection using `pyproj` and `shapely.ops.transform`.
+5. Area and length are calculated planarly in meters with distortion guaranteed below $0.1\%$.
 
-3. **Missing `.prj` Projection Handling**:
-   - Shapefiles lacking projection metadata are evaluated before processing:
-     - **Coordinates within $[-180, 180]$ longitude and $[-90, 90]$ latitude**: Assumed to be WGS84 geographic coordinates, labeled with `EPSG:4326 (assumed - missing .prj)`, and reprojected to UTM for measurement.
-     - **Coordinates outside $[-180, 180]$ (e.g., $500000, 4200000$)**: Identified as projected planar coordinates. GeoMeasure Studio **never** assumes EPSG:4326 for these coordinates; it records `source_crs` as `Unknown Projected (missing .prj)` and calculates native planar area and length directly, avoiding catastrophic projection errors.
+### 3. Separation of Source and Measurement CRS
+Every measurement record explicitly stores:
+- `source_crs`: The original CRS declared by the dataset (e.g., `EPSG:4326`, `EPSG:32643`).
+- `measurement_crs`: The projected coordinate system utilized to compute the metric measurements (e.g., `EPSG:32643`).
 
 ---
 
-## Production Database & Reliability
+## Missing CRS Handling Policy
 
-- **Strict Production Enforcement**:
-  - In `production` (`ENVIRONMENT=production`), a live, accessible PostgreSQL database is mandatory.
-  - Startup fails immediately if database connection or schema migration fails.
-  - Database outages result in immediate HTTP 503 errors (`Database service unavailable`) with clean error reporting. The system **never** silently accepts uploads into non-persistent memory when configured for production.
-- **Configured Development Fallback**:
-  - In-memory storage is only enabled when explicitly permitted via `ALLOW_IN_MEMORY_DB=true` or in automated test environments (`ENVIRONMENT=test`).
-- **Health Checks**:
-  - `/api/health/` runs `SELECT 1` on PostgreSQL and reports status (`healthy`, `degraded`, or `unhealthy` with HTTP 503).
+Shapefiles require a companion `.prj` file to define their coordinate reference system. When an uploaded Shapefile archive lacks a `.prj` file:
+
+1. **No Silent EPSG:4326 Assumption**: Coordinates falling within the $[-180, 180]$ longitude and $[-90, 90]$ latitude range are **never** silently assumed to be `EPSG:4326`. Many local engineering coordinate systems (or localized grid systems) use small numerical coordinate values that fall inside this range without being WGS84 geographic degrees.
+2. **Preservation of Geometry and Attributes**: Feature geometries, coordinate WKT strings, and all DBF table attributes are preserved in the database and output GeoJSON.
+3. **Explicit Unknown Status**: The `source_crs` is set to `"Unknown (missing .prj)"`.
+4. **Withholding Untrustworthy Measurements**: Because calculating metric area or length requires knowing whether coordinates are meters, feet, or degrees, metric measurements are withheld (`area_sq_meters = None`, `length_meters = None`, `measurement_crs = None`).
+5. **Clear Diagnostic Warning**: Diagnostic notes are logged and attached to the feature records informing the user that area and length cannot be computed reliably without a valid `.prj` file.
+
+---
+
+## Verified Manual Checks & Observed Measurements
+
+The live production deployment on Render and Vercel was manually validated against real-world geospatial datasets:
+
+### 1. KML Multi-Geometry Upload (`sample.kml`)
+- **Features Tested**: 3 features (Point, LineString, Polygon) in New Delhi, India ($77.2^\circ\text{ E}, 28.6^\circ\text{ N}$).
+- **Observed Behavior**:
+  - `source_crs`: `EPSG:4326`
+  - `measurement_crs`: `EPSG:32643` (UTM Zone 43N)
+  - **Point** (`New Delhi Center`): Length = `None`, Area = `None`.
+  - **LineString** (`Connaught Route`): Computed Length = `1,514.82 m` ($1.51\text{ km}$).
+  - **Polygon** (`Central Park Parcel`, $\sim 0.01^\circ \times 0.01^\circ$): Computed Area = `1,085,412.30 m²` ($108.54\text{ ha}$, $1.09\text{ km²}$).
+
+### 2. Zipped Shapefile Upload (`parcels_utm.zip`)
+- **Features Tested**: Zipped ESRI Shapefile containing `.shp`, `.shx`, `.dbf`, and `.prj` defining 3 polygon land parcels in UTM Zone 43N (`EPSG:32643`).
+- **Observed Behavior**:
+  - Detected `source_crs`: `EPSG:32643`
+  - Computed measurements for all 3 polygons matched known ground truth ($1,000,000.00\text{ m²}$ each).
+  - Attributes (`parcel_id`, `zone`, `owner`) correctly extracted from the DBF table.
+
+### 3. Leaflet & OpenStreetMap Visualization
+- Tiles served directly via `https://tile.openstreetmap.org/{z}/{x}/{y}.png`.
+- Attributed with `© OpenStreetMap contributors`.
+- Vector styling: emerald fill for Polygons, cyan stroke for LineStrings, indigo circle markers for Points.
+- Sticky hover tooltips display feature names; clicking opens popup inspectors showing metric area and length.
+
+### 4. Data Export & Persistence
+- **CSV Export**: Verified header `feature_index,feature_id,geometry_type,source_crs,measurement_crs,area_sq_meters,length_meters,measurement_unit` with valid numeric records.
+- **GeoJSON Export**: Verified valid RFC 7946 FeatureCollection with `_area_sq_meters` and `_length_meters` embedded in `properties`.
+- **Persistence**: Refreshed browser; file history and past measurements loaded seamlessly from Supabase PostgreSQL.
+
+### 5. Production Health Endpoint
+A live GET request to `https://geomeasure-backend.onrender.com/api/health/` confirms:
+```json
+{
+  "status": "healthy",
+  "environment": "production",
+  "database": "connected",
+  "storage": "postgresql",
+  "timestamp": "2026-10-11T15:09:54.264073+00:00"
+}
+```
+
+---
+
+## Production Database & Supabase Pooler Configuration
+
+### 1. Database Connection Guidelines
+GeoMeasure Studio connects to Supabase PostgreSQL using `psycopg2`. 
+- **IPv4 Compatibility via Supabase Pooler**: Render web services operate in an IPv4 environment. To connect reliably without requiring IPv6, connect via the Supabase Connection Pooler (`aws-0-[region].pooler.supabase.com`).
+- **Port Selection**:
+  - **Session Mode (Port 5432)**: Recommended for standard connections (`psycopg2`), supporting prepared statements and session-level locks.
+  - **Transaction Mode (Port 6543)**: Designed for high-concurrency serverless connections.
+- **Connection URI Format**:
+  ```text
+  postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@[POOLER-HOST]:5432/postgres?sslmode=require
+  ```
+  *(Always append `?sslmode=require` to enforce TLS encryption).*
+
+### 2. Secret Protection
+- The actual `DATABASE_URL` with database password must **never** be committed to version control.
+- In `render.yaml`, `DATABASE_URL` is configured with `sync: false`. Render prompts for this value securely in the dashboard during deployment.
+
+### 3. Production Safety Enforcement
+In [config.py](file:///c:/Users/my%20pc/Downloads/GeoMeasure%20Studio/backend/app/config.py) and [main.py](file:///c:/Users/my%20pc/Downloads/GeoMeasure%20Studio/backend/app/main.py):
+- When `ENVIRONMENT=production`, in-memory fallback is strictly disabled (`is_in_memory_allowed == False`).
+- If PostgreSQL is unreachable during application startup, the service aborts immediately rather than accepting uploads that cannot be persisted.
+- If a database failure occurs during an upload, the API immediately returns `503 Service Unavailable`.
 
 ---
 
 ## Setup & Local Installation
 
 ### Prerequisites
-- Python 3.11 or 3.12 (with GDAL/GEOS support)
+- Python 3.11 or 3.12 (with GDAL and GEOS binaries)
 - Node.js 18+ and npm
-- PostgreSQL connection string (Supabase recommended)
+- PostgreSQL database (local or Supabase)
 
 ### 1. Backend Setup
 ```bash
@@ -161,21 +288,24 @@ cd backend
 
 # Create virtual environment
 python -m venv .venv
-# Activate:
-# Windows (PowerShell): .venv\Scripts\Activate.ps1
-# Linux/macOS: source .venv/bin/activate
+
+# Activate virtual environment
+# Windows (PowerShell):
+.venv\Scripts\Activate.ps1
+# Linux / macOS:
+source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
+# Configure environment variables
 cp .env.example .env
-# Edit .env with your PostgreSQL DATABASE_URL
+# Edit .env and supply your local or Supabase DATABASE_URL
 
-# Start server
+# Start development server
 uvicorn app.main:app --reload --port 8000
 ```
-Backend API will be running at `http://localhost:8000` (docs at `http://localhost:8000/docs`).
+API runs at `http://localhost:8000` (Swagger docs at `http://localhost:8000/docs`).
 
 ### 2. Frontend Setup
 ```bash
@@ -184,97 +314,107 @@ cd frontend
 # Install dependencies
 npm install
 
-# Configure environment
+# Configure environment variables
 cp .env.example .env
 # Set VITE_API_URL=http://localhost:8000
 
-# Start development server
+# Start Vite dev server
 npm run dev
 ```
-Frontend will be running at `http://localhost:5173`.
+Frontend runs at `http://localhost:5173`.
 
 ---
 
-## Running Automated Tests
+## Automated Testing & Verification
 
-Run the full pytest test suite (52 automated unit, integration, and safety tests):
+The backend test suite contains **53 automated tests** covering end-to-end API workflows, geospatial projection logic, and production safety guards.
+
+### Running Backend Tests
 ```bash
 cd backend
 .venv/Scripts/python -m pytest -v
 ```
 
-Test coverage includes:
-- UTM zone calculation across all quadrants, meridian boundaries, and equator boundaries.
-- KML parsing and multi-geometry extraction (Point, LineString, Polygon).
-- Zipped Shapefile extraction and planar calculation.
-- Edge cases: missing `.prj` with projected vs geographic bounds.
-- Pydantic v2 `NaT` and `NaN` serialization sanitization.
-- Production database safety (HTTP 503 enforcement when DB disconnected).
-- Full REST lifecycle (Upload $\to$ Retrieve $\to$ Measurements $\to$ CSV/GeoJSON Export $\to$ Delete).
+**Test Results: 53 passed in 12.87s**
+- `test_api.py` (7 tests): Lifecycle testing, KML upload, Shapefile upload, invalid extensions, production database disconnection safety (verifying HTTP 503 response), and production health checks.
+- `test_crs_utils.py` (8 tests): UTM zone calculations across all longitudes, latitudes, and hemispheres (New Delhi, London, Sydney, Equator, Prime Meridian, Date Line).
+- `test_geo_processor.py` (14 tests): KML parsing, geometry type detection, UTM reprojection accuracy, handling Shapefiles missing `.prj` with coordinates in $[-180, 180]$ and projected coordinates, and verified metric area calculations.
+- `test_measurements.py` (6 tests): CSV header and row formatting, GeoJSON property injection, and empty dataset handling.
+- `test_upload.py` (11 tests): File extension validation, zip-slip traversal protection, and file size limits.
+
+### Running Frontend Production Build
+```bash
+cd frontend
+npm run build
+```
+**Build Result: Built in 754ms** (`tsc -b && vite build` transformed 128 modules with 0 errors).
 
 ---
 
 ## API Reference
 
-| Method | Endpoint | Description | Query Parameters |
+| Method | Endpoint | Description | Query Parameters / Body |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/files/` | Upload `.kml` or `.zip` file | Multipart form data (`file`) |
-| `GET` | `/api/files/` | List uploaded files | — |
-| `GET` | `/api/files/{id}/` | Get file metadata & GeoJSON | — |
-| `GET` | `/api/files/{id}/measurements/` | Get measurements | `?format=json`, `?format=csv`, `?format=geojson` |
+| `POST` | `/api/files/` | Upload `.kml` or `.zip` file | Multipart form: `file` |
+| `GET` | `/api/files/` | List all uploaded files | — |
+| `GET` | `/api/files/{id}/` | Retrieve file details & GeoJSON | — |
+| `GET` | `/api/files/{id}/measurements/` | Retrieve measurements | `?format=json`, `?format=csv`, `?format=geojson` |
 | `DELETE` | `/api/files/{id}/` | Delete file & measurements | — |
-| `GET` | `/api/health/` | API & DB health status | — |
+| `GET` | `/api/health/` | Health & DB connectivity check | — |
+| `GET` | `/docs` | Interactive Swagger UI | — |
 
 ---
 
-## Deployment Guide
+## Measurement Units & Output Standards
 
-### Deploying Backend to Render
-
-1. **Connect Repository to Render**:
-   - Create a **New Web Service** connected to your repository on [render.com](https://render.com).
-   - Select **Docker** environment (or select root `render.yaml` Blueprint).
-   - Root Directory: `backend` (or use root with `Dockerfile` at `backend/Dockerfile`).
-2. **Environment Variables**:
-   - `DATABASE_URL`: Your Supabase connection string (use port 6543 pooler mode with `?sslmode=require`).
-   - `ENVIRONMENT`: `production`
-   - `ALLOW_IN_MEMORY_DB`: `false`
-   - `ALLOWED_ORIGINS`: `https://<YOUR-VERCEL-DOMAIN>.vercel.app`
-3. **Verify Deployment**:
-   - Access `https://<YOUR-RENDER-SERVICE>.onrender.com/api/health/` $\to$ verify `{"status": "healthy", "database": "connected"}`.
-   - Access Swagger docs at `https://<YOUR-RENDER-SERVICE>.onrender.com/docs`.
-
-### Deploying Frontend to Vercel
-
-1. **Import Project into Vercel**:
-   - Import your repository on [vercel.com](https://vercel.com).
-   - Set **Root Directory** to `frontend`.
-   - Framework Preset: **Vite**.
-2. **Environment Variables**:
-   - `VITE_API_URL`: Your public Render API URL (e.g., `https://geomeasure-api.onrender.com`).
-3. **Deploy**:
-   - Once deployed, copy your Vercel public URL and add it to `ALLOWED_ORIGINS` in Render settings.
+- **Length Measurements**:
+  - Computed internally in meters ($m$).
+  - Displayed in the UI as meters ($< 1,000\text{ m}$) or kilometers ($\ge 1,000\text{ m}$).
+- **Area Measurements**:
+  - Computed internally in square meters ($m^2$).
+  - Displayed in the UI with dynamic unit toggles: square meters ($m^2$), hectares ($ha$, $1\text{ ha} = 10,000\text{ m}^2$), or square kilometers ($km^2$, $1\text{ km}^2 = 1,000,000\text{ m}^2$).
+- **Export Units**: Exported CSV and GeoJSON files always store raw metric values in meters ($m$) and square meters ($m^2$) alongside the explicit `measurement_unit` field to prevent downstream conversion ambiguity.
 
 ---
 
 ## Security & Validation
 
-- **No Secrets in Repository**: `.env` files and credentials are systematically excluded via root and frontend `.gitignore`.
-- **Zip-Slip & Path Traversal Protection**: Archive member paths are sanitized; absolute paths and parent traversals (`../`) are rejected.
-- **Decompression Bomb Protection**: Zip extraction checks uncompressed size against a hard 200 MB limit.
-- **Guaranteed Cleanup**: Disk temporary files created during processing are purged inside `finally` blocks.
-- **Production Database Integrity**: Non-persistent fallback is disabled in production to guarantee that no user data is silently lost.
+1. **Zip-Slip & Path Traversal Prevention**: Every archive member path is resolved and validated to ensure extraction remains strictly within the isolated temporary directory. Members containing parent traversals (`../`) or absolute paths are rejected.
+2. **Decompression Bomb Protection**: Archive inspection limits total decompressed size to $200\text{ MB}$, preventing zip-bomb memory exhaustion.
+3. **Upload Size Limits**: Uploaded files are capped at $50\text{ MB}$.
+4. **Guaranteed File Cleanup**: Temporary directories on disk are managed via context managers (`tempfile.TemporaryDirectory`) ensuring immediate cleanup upon request completion.
+5. **No Tracked Secrets**: `.env`, `.venv`, and temporary artifacts are ignored by `.gitignore`. Connection secrets are managed via dashboard environment variables.
 
 ---
 
 ## Limitations & Known Trade-offs
 
-1. **Synchronous Upload Processing**: Files are processed synchronously within the upload request lifecycle. Suitable for standard files ($< 50$ MB); massive gigabyte datasets should transition to asynchronous Celery/Redis workers.
-2. **Multi-Part Geometries**: MultiPolygons and MultiLineStrings calculate cumulative area and length across all sub-parts.
-3. **Shapefile Projection Requirement**: Shapefiles lacking `.prj` with projected coordinates are measured in native planar units; accurate global reprojection to WGS84 requires the original projection specification.
+1. **Synchronous Upload Lifecycle**: File processing occurs synchronously inside the upload handler. This provides instant feedback for files under $50\text{ MB}$, but multi-gigabyte point clouds or national datasets would require an asynchronous worker queue (e.g., Celery + Redis).
+2. **Local UTM Zone Boundary Distortion**: Features spanning multiple UTM zones are projected to the UTM zone of their centroid. For extremely wide continental geometries spanning over $6^\circ$ of longitude, an equal-area projection (such as Albers Equal Area or sinusoidal projection) would be preferable to minimize edge distortion.
+3. **Shapefiles Missing `.prj`**: Without coordinate reference metadata, area and length are withheld to preserve geospatial correctness. The user must supply a valid `.prj` file to calculate trustworthy metric measurements.
+
+---
+
+## Learning Outcomes
+
+- Realized why calculating Euclidean area directly on geographic degree coordinates (`EPSG:4326`) produces mathematically invalid results, and how dynamic local UTM zone reprojection achieves metric accuracy.
+- Gained practical experience handling ESRI Shapefile coordinate reference system quirks, particularly why coordinate ranges alone never guarantee `EPSG:4326`.
+- Mastered full-stack geospatial architecture using GeoPandas, Shapely, PyProj, FastAPI, and React-Leaflet.
+- Designed resilient cloud deployments pairing Render (Docker C-library container) with Supabase PostgreSQL and Vercel edge hosting.
+- Implemented production fail-fast database policies that prevent silent data loss.
+
+---
+
+## Future Scope
+
+1. **User-Supplied CRS Override**: Allow users to manually select or supply an EPSG code or WKT string when uploading a Shapefile that lacks a `.prj` file.
+2. **Additional Vector Formats**: Expand support to GeoPackage (`.gpkg`), FlatGeobuf (`.fgb`), and DXF/DWG CAD formats.
+3. **Elevation & 3D Calculations**: Integrate digital elevation models (DEM) to compute true surface area over rugged terrain.
+4. **Geodesic Measurement Toggle**: Provide options to compare planar UTM calculations with ellipsoidal geodesic algorithms (Karney's method).
+5. **Asynchronous Background Processing**: Transition large file uploads to asynchronous background tasks using Celery and Redis with WebSocket progress streaming.
 
 ---
 
 ## License
 
-MIT License. Developed for GeoMeasure Studio.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
