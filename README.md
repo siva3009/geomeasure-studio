@@ -41,8 +41,14 @@ A production-grade geospatial file measurement platform. Upload **KML** and **zi
   - [API Key Management Endpoints](#api-key-management-endpoints)
   - [External Geometry Measurement Endpoint (v1)](#external-geometry-measurement-endpoint-v1)
   - [Authentication Error Reference](#authentication-error-reference)
+- [v2 Phase 2: Developer Dashboard & API Playground](#v2-phase-2-developer-dashboard--api-playground)
+  - [Authentication Flow](#developer-authentication-flow)
+  - [Overview Dashboard](#overview-dashboard)
+  - [API Key Management Lifecycle](#api-key-management-lifecycle)
+  - [Interactive API Playground](#interactive-api-playground)
 - [API Reference](#api-reference)
 - [Measurement Units & Output Standards](#measurement-units--output-standards)
+
 - [Security & Validation](#security--validation)
 - [Limitations & Known Trade-offs](#limitations--known-trade-offs)
 - [Learning Outcomes](#learning-outcomes)
@@ -589,7 +595,38 @@ curl -X POST "https://geomeasure-backend.onrender.com/api/v1/measurements/" \
 
 ---
 
+## v2 Phase 2: Developer Dashboard & API Playground
+
+GeoMeasure Studio v2 Phase 2 introduces a dedicated developer portal at `/developer`, enabling self-service API key provisioning, real-time usage inspection, and an interactive geospatial measurement sandbox.
+
+### Developer Authentication Flow
+- **Supabase Auth Integration**: Full email/password sign-in and account registration powered by official `@supabase/supabase-js`.
+- **JWT Session Synchronization**: Automatically persists session tokens in browser memory/storage and passes Bearer JWT tokens (`Authorization: Bearer <token>`) to key management endpoints.
+- **Client Configuration Safety**: Requires only `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Privileged service-role keys, JWT secrets, and database passwords are never exposed to the client.
+
+### Overview Dashboard
+- **Live Metric Counters**: Real-time cards displaying **Total Keys**, **Active Keys**, **Revoked / Expired Keys**, and **Total Programmatic Requests** aggregated directly from PostgreSQL database records.
+- **Recent Credentials Activity**: Quick view of latest key prefixes, status indicators, and last-used dates.
+- **Quick Actions**: One-click actions to generate new credentials, jump to the interactive playground, or read endpoint specifications.
+
+### API Key Management Lifecycle
+- **Key Generation**: Create named API keys with customizable expiration periods (30 days, 60 days, 90 days, 1 year, or never expires).
+- **One-Time Plaintext Modal**: The raw secret (`gm_live_<secret>`) is presented strictly once upon creation with a one-click copy button. Plaintext keys are never stored on the server or retained in client storage.
+- **Immediate Soft-Revocation**: Users can revoke keys on demand with instant confirmation. Subsequent requests with revoked keys are rejected immediately (`401 Unauthorized`) while preserving audit history.
+- **Metadata Inspection**: Inspect non-sensitive key details (key ID, non-secret prefix, created timestamp, last-used timestamp, and request count).
+
+### Interactive API Playground
+- **Endpoint Sandbox**: Interactive testing interface for `POST /api/v1/measurements/`.
+- **Credential Selector & Key Masking**: Test with any active account key with a password-mask toggle to prevent accidental shoulder-surfing of secrets.
+- **Geometry Presets**: Instant geometry templates for **Polygon** (urban parcel), **LineString** (transit route), **Point** (validation check), and custom GeoJSON.
+- **Pre-Flight JSON Validation**: Local syntax validation catches malformed coordinates before sending network requests.
+- **Dynamic cURL Generator**: Generates real, ready-to-run cURL commands reflecting the exact geometry, CRS, and headers specified in the playground.
+- **Live Response Inspector**: Displays HTTP status, network duration in milliseconds, computed metric measurements (area in $m^2$, hectares, $km^2$; length in meters, $km$), and formatted JSON output.
+
+---
+
 ## API Reference
+
 
 ### Core File & Geometry Endpoints (v1)
 

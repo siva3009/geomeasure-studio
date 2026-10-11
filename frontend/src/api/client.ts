@@ -68,3 +68,113 @@ export async function deleteFile(fileId: string): Promise<void> {
   await api.delete(`/api/files/${fileId}/`);
 }
 
+/* ======================================================
+   v2 Phase 2: API Key Management API Endpoints
+   ====================================================== */
+
+import type {
+  ApiKeyMetadata,
+  CreateApiKeyRequest,
+  CreateApiKeyResponse,
+  ApiKeyUsage,
+  GeometryMeasurementRequest,
+  PlaygroundExecutionResult,
+} from '../types';
+
+/** List all API keys owned by the authenticated user */
+export async function listApiKeys(accessToken: string): Promise<ApiKeyMetadata[]> {
+  const { data } = await api.get<ApiKeyMetadata[]>('/api/keys/', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return data;
+}
+
+/** Create a new API key (returns plaintext key once) */
+export async function createApiKey(
+  payload: CreateApiKeyRequest,
+  accessToken: string
+): Promise<CreateApiKeyResponse> {
+  const { data } = await api.post<CreateApiKeyResponse>('/api/keys/', payload, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return data;
+}
+
+/** Retrieve key metadata by ID */
+export async function getApiKey(
+  keyId: string,
+  accessToken: string
+): Promise<ApiKeyMetadata> {
+  const { data } = await api.get<ApiKeyMetadata>(`/api/keys/${keyId}/`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return data;
+}
+
+/** Revoke an API key immediately */
+export async function revokeApiKey(
+  keyId: string,
+  accessToken: string
+): Promise<ApiKeyMetadata> {
+  const { data } = await api.delete<ApiKeyMetadata>(`/api/keys/${keyId}/`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return data;
+}
+
+/** Retrieve key usage metrics */
+export async function getApiKeyUsage(
+  keyId: string,
+  accessToken: string
+): Promise<ApiKeyUsage> {
+  const { data } = await api.get<ApiKeyUsage>(`/api/keys/${keyId}/usage/`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return data;
+}
+
+/**
+ * Execute external geometry measurement via the API Playground.
+ * Sends the request with the X-API-Key header and tracks latency.
+ */
+export async function testMeasurementPlayground(
+  payload: GeometryMeasurementRequest,
+  apiKey: string
+): Promise<PlaygroundExecutionResult> {
+  const startTime = performance.now();
+  try {
+    const res = await api.post('/api/v1/measurements/', payload, {
+      headers: {
+        'X-API-Key': apiKey.trim(),
+        'Content-Type': 'application/json',
+      },
+    });
+    const durationMs = Math.round(performance.now() - startTime);
+    return {
+      status: res.status,
+      statusText: res.statusText || 'OK',
+      durationMs,
+      data: res.data,
+    };
+  } catch (err: unknown) {
+    const durationMs = Math.round(performance.now() - startTime);
+    if (axios.isAxiosError(err)) {
+      return {
+        status: err.response?.status || 500,
+        statusText: err.response?.statusText || 'Error',
+        durationMs,
+        data: err.response?.data || { detail: err.message },
+        error: err.response?.data?.detail || err.message,
+      };
+    }
+    return {
+      status: 500,
+      statusText: 'Internal Error',
+      durationMs,
+      data: { detail: err instanceof Error ? err.message : 'Unknown network failure' },
+      error: err instanceof Error ? err.message : 'Unknown network failure',
+    };
+  }
+}
+
+
