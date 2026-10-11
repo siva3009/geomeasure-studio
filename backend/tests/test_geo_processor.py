@@ -148,30 +148,77 @@ class TestProcessShapefileZip:
         assert measurements[0]["measurement_crs"] is not None
         assert measurements[0]["measurement_crs"].startswith("EPSG:326")
 
-    def test_missing_prj_projected_coordinates_not_assumed_epsg4326(self, tmp_path):
+    def test_missing_prj_coordinates_within_180_not_assumed_epsg4326(self, tmp_path):
         """
-        If a shapefile has coordinates far outside [-180, 180] (projected coordinates)
-        and is missing its .prj file, it must NOT be assumed to be EPSG:4326!
+        Requirements: For Shapefiles without identifiable CRS metadata,
+        preserve geometry and attributes, set CRS status to unknown,
+        add a clear warning, and do NOT report area or length as trustworthy measurements.
+        Do NOT silently assign EPSG:4326 merely because coordinates fall within [-180, 180].
         """
-        import tempfile
         import zipfile
         import geopandas as gpd
         from shapely.geometry import Polygon
 
-        # Create shapefile with projected meters (e.g., 500,000, 4,200,000)
+        poly = Polygon([(77.0, 28.0), (77.01, 28.0), (77.01, 28.01), (77.0, 28.01)])
+        gdf_geo = gpd.GeoDataFrame({"parcel": ["Lot A"]}, geometry=[poly])
+        shp_dir = tmp_path / "shp_noprj_geo"
+        shp_dir.mkdir()
+        shp_path = shp_dir / "test_geo.shp"
+        gdf_geo.to_file(shp_path)
+
+        # Remove .prj if created
+        prj_path = shp_dir / "test_geo.prj"
+        if prj_path.exists():
+            prj_path.unlink()
+
+        zip_path = tmp_path / "test_geo_noprj.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            for ext in [".shp", ".shx", ".dbf"]:
+                f = shp_dir / f"test_geo{ext}"
+                if f.exists():
+                    zf.write(f, f"test_geo{ext}")
+
+        gdf_read, detected_crs = process_shapefile_zip(str(zip_path))
+        # Must NOT silently assume EPSG:4326
+        assert detected_crs == "Unknown (missing .prj)"
+        assert "EPSG:4326" not in detected_crs
+
+        measurements, geojson = compute_measurements(gdf_read, detected_crs)
+        assert len(measurements) == 1
+        # Geometry and attributes must be preserved
+        assert measurements[0]["geometry_type"] == "Polygon"
+        assert measurements[0]["properties"]["parcel"] == "Lot A"
+        assert geojson["type"] == "FeatureCollection"
+        assert len(geojson["features"]) == 1
+
+        # CRS must be set to unknown
+        assert measurements[0]["source_crs"] == "Unknown (missing .prj)"
+        assert measurements[0]["measurement_crs"] is None
+
+        # Area and length must NOT be reported as trustworthy measurements
+        assert measurements[0]["area_sq_meters"] is None
+        assert measurements[0]["length_meters"] is None
+
+    def test_missing_prj_projected_coordinates_withholds_measurements(self, tmp_path):
+        """
+        Shapefiles with projected coordinates and missing .prj must have CRS set to unknown
+        and measurements withheld, with geometry and attributes preserved.
+        """
+        import zipfile
+        import geopandas as gpd
+        from shapely.geometry import Polygon
+
         poly = Polygon([(500000, 4200000), (501000, 4200000), (501000, 4201000), (500000, 4201000)])
-        gdf_proj = gpd.GeoDataFrame({"id": [1]}, geometry=[poly])
-        shp_dir = tmp_path / "shp_noprj"
+        gdf_proj = gpd.GeoDataFrame({"id": [99]}, geometry=[poly])
+        shp_dir = tmp_path / "shp_noprj_proj"
         shp_dir.mkdir()
         shp_path = shp_dir / "projected.shp"
         gdf_proj.to_file(shp_path)
 
-        # Remove .prj if generated
         prj_path = shp_dir / "projected.prj"
         if prj_path.exists():
             prj_path.unlink()
 
-        # Create zip without .prj
         zip_path = tmp_path / "projected_noprj.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
             for ext in [".shp", ".shx", ".dbf"]:
@@ -179,54 +226,48 @@ class TestProcessShapefileZip:
                 if f.exists():
                     zf.write(f, f"projected{ext}")
 
-        # Process the zip
         gdf_read, detected_crs = process_shapefile_zip(str(zip_path))
-        assert "Unknown Projected" in detected_crs
-        assert "EPSG:4326" not in detected_crs
+        assert detected_crs == "Unknown (missing .prj)"
 
-        measurements, _ = compute_measurements(gdf_read, detected_crs)
+        measurements, geojson = compute_measurements(gdf_read, detected_crs)
         assert len(measurements) == 1
-        assert measurements[0]["source_crs"] == "Unknown Projected (missing .prj)"
-        assert measurements[0]["measurement_crs"] == "Planar (Unknown Source Projection)"
-        assert measurements[0]["area_sq_meters"] == 1000000.0  # 1000m x 1000m = 1,000,000 m²
+        assert measurements[0]["properties"]["id"] == 99
+        assert measurements[0]["source_crs"] == "Unknown (missing .prj)"
+        assert measurements[0]["measurement_crs"] is None
+        assert measurements[0]["area_sq_meters"] is None
+        assert measurements[0]["length_meters"] is None
 
-    def test_missing_prj_geographic_coordinates_annotated_with_warning(self, tmp_path):
-        """
-        If coordinates are in [-180, 180] range without .prj, it is assumed EPSG:4326
-        with an explicit annotation warning.
-        """
+    def test_valid_projected_crs_shapefile_measured_accurately(self, tmp_path):
+        """Shapefiles WITH a valid projected CRS .prj calculate accurate measurements."""
         import zipfile
         import geopandas as gpd
         from shapely.geometry import Polygon
 
-        poly = Polygon([(77.0, 28.0), (77.01, 28.0), (77.01, 28.01), (77.0, 28.01)])
-        gdf_geo = gpd.GeoDataFrame({"id": [1]}, geometry=[poly])
-        shp_dir = tmp_path / "shp_geono_prj"
+        # 1000m x 1000m square in UTM zone 43N (EPSG:32643)
+        poly = Polygon([(500000, 3100000), (501000, 3100000), (501000, 3101000), (500000, 3101000)])
+        gdf_utm = gpd.GeoDataFrame({"zone": ["43N"]}, geometry=[poly], crs="EPSG:32643")
+        shp_dir = tmp_path / "shp_valid_utm"
         shp_dir.mkdir()
-        shp_path = shp_dir / "geo.shp"
-        gdf_geo.to_file(shp_path)
+        shp_path = shp_dir / "valid_utm.shp"
+        gdf_utm.to_file(shp_path)
 
-        # Remove .prj if generated
-        prj_path = shp_dir / "geo.prj"
-        if prj_path.exists():
-            prj_path.unlink()
-
-        zip_path = tmp_path / "geo_noprj.zip"
+        zip_path = tmp_path / "valid_utm.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
-            for ext in [".shp", ".shx", ".dbf"]:
-                f = shp_dir / f"geo{ext}"
+            for ext in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
+                f = shp_dir / f"valid_utm{ext}"
                 if f.exists():
-                    zf.write(f, f"geo{ext}")
+                    zf.write(f, f"valid_utm{ext}")
 
         gdf_read, detected_crs = process_shapefile_zip(str(zip_path))
-        assert "assumed" in detected_crs
-        assert "EPSG:4326" in detected_crs
+        assert "32643" in detected_crs
 
         measurements, _ = compute_measurements(gdf_read, detected_crs)
         assert len(measurements) == 1
-        # Separately recorded
-        assert measurements[0]["source_crs"] == "EPSG:4326 (assumed - missing .prj)"
-        assert measurements[0]["measurement_crs"] == "EPSG:32643"
-        assert measurements[0]["area_sq_meters"] > 0
+        assert measurements[0]["geometry_type"] == "Polygon"
+        assert measurements[0]["source_crs"] is not None
+        assert measurements[0]["measurement_crs"] is not None
+        # ~1,000,000 m²
+        assert 990_000 <= measurements[0]["area_sq_meters"] <= 1_010_000
+
 
 

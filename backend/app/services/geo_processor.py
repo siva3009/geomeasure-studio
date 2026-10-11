@@ -115,27 +115,12 @@ def process_shapefile_zip(file_path: str) -> Tuple[gpd.GeoDataFrame, str]:
             if gdf.crs is not None:
                 source_crs = crs_to_string(gdf.crs)
             else:
-                # Shapefile has no .prj file — inspect bounds to check if coordinates are geographic
-                bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
-                is_geographic = (
-                    len(bounds) == 4
-                    and bounds[0] >= -180.0
-                    and bounds[2] <= 180.0
-                    and bounds[1] >= -90.0
-                    and bounds[3] <= 90.0
+                # Shapefile has no .prj file or identifiable CRS metadata
+                logger.warning(
+                    "Shapefile has no identifiable CRS metadata (.prj file is missing). "
+                    "Geometry and attributes are preserved, but measurements cannot be reliably computed without a known CRS."
                 )
-                if is_geographic:
-                    logger.warning(
-                        "Shapefile has no CRS (.prj) defined. Coordinates are within [-180, 180], assuming EPSG:4326."
-                    )
-                    source_crs = "EPSG:4326 (assumed - missing .prj)"
-                    gdf = gdf.set_crs("EPSG:4326")
-                else:
-                    logger.warning(
-                        f"Shapefile has no CRS (.prj) defined and coordinates {bounds} are outside geographic range [-180, 180]. "
-                        "Marking as Unknown Projected."
-                    )
-                    source_crs = "Unknown Projected (missing .prj)"
+                source_crs = "Unknown (missing .prj)"
 
             return gdf, source_crs
 
@@ -211,49 +196,43 @@ def compute_measurements(
             "properties": properties,
         }
 
-        if geom_type in SUPPORTED_TYPES:
+        if source_crs.startswith("Unknown") or (gdf.crs is None and not source_crs):
+            diagnostics.append(
+                f"Feature {feature_index}: CRS is unknown (missing .prj file). "
+                "Geometry and attributes preserved, but area and length cannot be reliably computed. "
+                "Please supply a Shapefile with a valid .prj file."
+            )
+        elif geom_type in SUPPORTED_TYPES:
             if geom_type in POINT_TYPES:
                 # Points: no measurement needed
                 pass
             else:
-                # Need to reproject for measurement
+                # Known CRS: reproject to local UTM for accurate measurement
                 try:
-                    if source_crs.startswith("Unknown Projected"):
-                        measurement["measurement_crs"] = "Planar (Unknown Source Projection)"
-                        if geom_type in POLYGON_TYPES:
-                            measurement["area_sq_meters"] = round(geom.area, 4)
-                        elif geom_type in LINE_TYPES:
-                            measurement["length_meters"] = round(geom.length, 4)
-                        diagnostics.append(
-                            f"Feature {feature_index}: missing .prj file with projected coordinates; computed planar measurements directly without reprojection."
-                        )
+                    centroid = geom.centroid
+                    if not is_geographic_crs(source_crs):
+                        import pyproj
+                        from shapely.ops import transform
+
+                        project = pyproj.Transformer.from_crs(
+                            source_crs, "EPSG:4326", always_xy=True
+                        ).transform
+                        centroid_4326 = transform(project, centroid)
+                        lon, lat = centroid_4326.x, centroid_4326.y
                     else:
-                        centroid = geom.centroid
-                        # Clean source CRS string for pyproj if annotated
-                        clean_source_crs = "EPSG:4326" if "EPSG:4326" in source_crs else source_crs
-                        if not is_geographic_crs(clean_source_crs):
-                            import pyproj
-                            from shapely.ops import transform
+                        lon, lat = centroid.x, centroid.y
 
-                            project = pyproj.Transformer.from_crs(
-                                clean_source_crs, "EPSG:4326", always_xy=True
-                            ).transform
-                            centroid_4326 = transform(project, centroid)
-                            lon, lat = centroid_4326.x, centroid_4326.y
-                        else:
-                            lon, lat = centroid.x, centroid.y
+                    utm_crs = get_utm_crs_string(lon, lat)
+                    measurement["measurement_crs"] = utm_crs
 
-                        utm_crs = get_utm_crs_string(lon, lat)
-                        measurement["measurement_crs"] = utm_crs
+                    # Reproject the geometry to UTM for accurate measurement
+                    geom_series = gpd.GeoSeries([geom], crs=source_crs)
+                    geom_projected = geom_series.to_crs(utm_crs).iloc[0]
 
-                        # Reproject the geometry to UTM for accurate measurement
-                        geom_series = gpd.GeoSeries([geom], crs=clean_source_crs)
-                        geom_projected = geom_series.to_crs(utm_crs).iloc[0]
-
-                        if geom_type in POLYGON_TYPES:
-                            measurement["area_sq_meters"] = round(geom_projected.area, 4)
-                        elif geom_type in LINE_TYPES:
-                            measurement["length_meters"] = round(geom_projected.length, 4)
+                    if geom_type in POLYGON_TYPES:
+                        measurement["area_sq_meters"] = round(geom_projected.area, 4)
+                    elif geom_type in LINE_TYPES:
+                        measurement["length_meters"] = round(geom_projected.length, 4)
 
                 except Exception as e:
                     logger.error(f"Measurement failed for feature {feature_index}: {e}")
@@ -270,11 +249,10 @@ def compute_measurements(
     # Generate GeoJSON from the original GeoDataFrame
     # Ensure it's in WGS84 for Leaflet compatibility
     try:
-        if source_crs.startswith("Unknown Projected") or gdf.crs is None:
+        if source_crs.startswith("Unknown") or gdf.crs is None:
             geojson = json.loads(gdf.to_json())
         else:
-            clean_crs = "EPSG:4326" if "EPSG:4326" in str(gdf.crs) else gdf.crs
-            gdf_4326 = gdf.to_crs("EPSG:4326") if not is_geographic_crs(clean_crs) else gdf
+            gdf_4326 = gdf.to_crs("EPSG:4326") if not is_geographic_crs(gdf.crs) else gdf
             geojson = json.loads(gdf_4326.to_json())
     except Exception as e:
         logger.error(f"GeoJSON generation failed: {e}")
