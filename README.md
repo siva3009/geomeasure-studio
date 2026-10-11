@@ -206,36 +206,42 @@ Shapefiles require a companion `.prj` file to define their coordinate reference 
 
 ## Verified Manual Checks & Observed Measurements
 
-The live production deployment on Render and Vercel was manually validated against real-world geospatial datasets:
+The live production deployment on Render and Vercel was manually validated against demonstrated real-world geospatial datasets:
 
-### 1. KML Multi-Geometry Upload (`sample.kml`)
-- **Features Tested**: 3 features (Point, LineString, Polygon) in New Delhi, India ($77.2^\circ\text{ E}, 28.6^\circ\text{ N}$).
-- **Observed Behavior**:
-  - `source_crs`: `EPSG:4326`
-  - `measurement_crs`: `EPSG:32643` (UTM Zone 43N)
-  - **Point** (`New Delhi Center`): Length = `None`, Area = `None`.
-  - **LineString** (`Connaught Route`): Computed Length = `1,514.82 m` ($1.51\text{ km}$).
-  - **Polygon** (`Central Park Parcel`, $\sim 0.01^\circ \times 0.01^\circ$): Computed Area = `1,085,412.30 m²` ($108.54\text{ ha}$, $1.09\text{ km²}$).
+### 1. Demonstrated KML Upload (`measurement-test.kml`)
+- **Source CRS**: `EPSG:4326`
+- **Features Tested**: 3 features (Point, LineString, and Polygon)
+- **Observed Measurements**:
+  - **Point**: Length = `None`, Area = `None`
+  - **LineString**: Displayed Length = `1.0841 km`
+  - **Polygon**: Displayed Area = `1.1990 ha`
 
-### 2. Zipped Shapefile Upload (`parcels_utm.zip`)
-- **Features Tested**: Zipped ESRI Shapefile containing `.shp`, `.shx`, `.dbf`, and `.prj` defining 3 polygon land parcels in UTM Zone 43N (`EPSG:32643`).
-- **Observed Behavior**:
-  - Detected `source_crs`: `EPSG:32643`
-  - Computed measurements for all 3 polygons matched known ground truth ($1,000,000.00\text{ m²}$ each).
-  - Attributes (`parcel_id`, `zone`, `owner`) correctly extracted from the DBF table.
+### 2. Demonstrated Shapefile Upload (`GeoMeasure_Test_Shapefile_Chennai.zip`)
+- **Source CRS**: `EPSG:4326`
+- **Features Tested**: 3 Polygon land parcel features in Chennai, India
+- **Measurement CRS**: `EPSG:32644` (UTM Zone 44N)
+- **Observed Measurements**:
+  - **Parcel A**: Displayed Area = `1.1990 ha`
+  - **Parcel B**: Displayed Area = `6714.43 m²`
+  - **Parcel C**: Displayed Area = `5035.80 m²`
 
-### 3. Leaflet & OpenStreetMap Visualization
+### 3. Automated Backend Test Fixtures (Tested Separately in Test Suite)
+The automated pytest test suite in `backend/tests/fixtures/` independently verifies:
+- `sample.kml`: 3 features (Point, LineString, Polygon) in New Delhi, India ($77.2^\circ\text{ E}, 28.6^\circ\text{ N}$), reprojected to UTM Zone 43N (`EPSG:32643`), with Polygon area $\sim 1,085,000\text{ m²}$ ($\sim 1\text{ km²}$) and LineString length $\sim 1,500\text{ m}$.
+- `sample_shapefile.zip`: Zipped Shapefile with `.prj` (`EPSG:4326`) defining a polygon parcel accurately measured in UTM.
+
+### 4. Leaflet & OpenStreetMap Visualization
 - Tiles served directly via `https://tile.openstreetmap.org/{z}/{x}/{y}.png`.
 - Attributed with `© OpenStreetMap contributors`.
 - Vector styling: emerald fill for Polygons, cyan stroke for LineStrings, indigo circle markers for Points.
 - Sticky hover tooltips display feature names; clicking opens popup inspectors showing metric area and length.
 
-### 4. Data Export & Persistence
+### 5. Data Export & Persistence
 - **CSV Export**: Verified header `feature_index,feature_id,geometry_type,source_crs,measurement_crs,area_sq_meters,length_meters,measurement_unit` with valid numeric records.
 - **GeoJSON Export**: Verified valid RFC 7946 FeatureCollection with `_area_sq_meters` and `_length_meters` embedded in `properties`.
 - **Persistence**: Refreshed browser; file history and past measurements loaded seamlessly from Supabase PostgreSQL.
 
-### 5. Production Health Endpoint
+### 6. Production Health Endpoint
 A live GET request to `https://geomeasure-backend.onrender.com/api/health/` confirms:
 ```json
 {
@@ -335,19 +341,21 @@ cd backend
 .venv/Scripts/python -m pytest -v
 ```
 
-**Test Results: 53 passed in 12.87s**
-- `test_api.py` (7 tests): Lifecycle testing, KML upload, Shapefile upload, invalid extensions, production database disconnection safety (verifying HTTP 503 response), and production health checks.
-- `test_crs_utils.py` (8 tests): UTM zone calculations across all longitudes, latitudes, and hemispheres (New Delhi, London, Sydney, Equator, Prime Meridian, Date Line).
-- `test_geo_processor.py` (14 tests): KML parsing, geometry type detection, UTM reprojection accuracy, handling Shapefiles missing `.prj` with coordinates in $[-180, 180]$ and projected coordinates, and verified metric area calculations.
-- `test_measurements.py` (6 tests): CSV header and row formatting, GeoJSON property injection, and empty dataset handling.
-- `test_upload.py` (11 tests): File extension validation, zip-slip traversal protection, and file size limits.
+**Test Results: 53 passed in 13.74s**
+- `test_api.py` (7 tests): End-to-end API lifecycle, KML upload, Shapefile upload, invalid extension rejection, production database safety (HTTP 503 enforcement when DB is disconnected), and production health check verification.
+- `test_crs_utils.py` (14 tests): UTM zone selection across hemispheres, Prime Meridian, Date Line, Equator, New Delhi, London, Sydney, geographic CRS detection, and CRS string normalization.
+- `test_geo_processor.py` (14 tests): KML parsing and feature extraction, UTM metric measurement accuracy, handling Shapefiles missing `.prj` with coordinates in $[-180, 180]$ and projected coordinates (verifying unknown CRS status and withholding measurements), and valid projected Shapefile metric measurements.
+- `test_measurements.py` (6 tests): CSV header and row formatting, GeoJSON measurement property injection, and empty dataset handling.
+- `test_upload.py` (12 tests): File extension validation, uppercase extensions, path traversal stripping, file size validation, empty file rejection, and safe filename extraction.
+
+*(Total: $7 + 14 + 14 + 6 + 12 = 53$ tests)*
 
 ### Running Frontend Production Build
 ```bash
 cd frontend
 npm run build
 ```
-**Build Result: Built in 754ms** (`tsc -b && vite build` transformed 128 modules with 0 errors).
+**Build Result: Built in 884ms** (`tsc -b && vite build` transformed 128 modules with 0 errors).
 
 ---
 
