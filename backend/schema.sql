@@ -52,3 +52,39 @@ CREATE TABLE IF NOT EXISTS api_keys (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
 
+ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'api_keys' AND policyname = 'Users can view and manage their own API keys'
+    ) THEN
+        CREATE POLICY "Users can view and manage their own API keys"
+            ON api_keys
+            FOR ALL
+            USING (auth.uid() = user_id)
+            WITH CHECK (auth.uid() = user_id);
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'auth' AND table_name = 'users'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'fk_api_keys_user_id'
+    ) THEN
+        ALTER TABLE api_keys 
+            ADD CONSTRAINT fk_api_keys_user_id 
+            FOREIGN KEY (user_id) 
+            REFERENCES auth.users(id) 
+            ON DELETE CASCADE;
+    END IF;
+END
+$$;
+
+

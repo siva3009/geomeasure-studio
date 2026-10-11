@@ -339,7 +339,7 @@ Frontend runs at `http://localhost:5173`.
 
 ## Automated Testing & Verification
 
-The backend test suite contains **66 automated tests** covering end-to-end API workflows, API key infrastructure, geospatial projection logic, and production safety guards.
+The backend test suite contains **69 automated tests** covering end-to-end API workflows, API key infrastructure, geospatial projection logic, and production safety guards.
 
 ### Running Backend Tests
 ```bash
@@ -347,22 +347,22 @@ cd backend
 .venv/Scripts/python -m pytest -v
 ```
 
-**Test Results: 66 passed in 13.41s**
+**Test Results: 69 passed in 13.51s**
 - `test_api.py` (7 tests): End-to-end API lifecycle, KML upload, Shapefile upload, invalid extension rejection, production database safety (HTTP 503 enforcement when DB is disconnected), and production health check verification.
-- `test_api_keys.py` (13 tests): Cryptographic key creation, plaintext return-only-at-creation policy, SHA-256 database hashing verification, metadata isolation (no secrets or hashes in list/inspect), user ownership isolation (cross-user rejection), unauthenticated rejection (401), external v1 measurement endpoint authorization, invalid/malformed/missing key rejection (401), immediate revocation enforcement, expiration rejection, invalid geometry rejection (400), and optional `Authorization: Bearer gm_live_...` support.
+- `test_api_keys.py` (16 tests): Cryptographic key creation, plaintext return-only-at-creation policy, SHA-256 database hashing verification, metadata isolation (no secrets or hashes in list/inspect), user ownership isolation (cross-user rejection), unauthenticated rejection (401), external v1 measurement endpoint authorization, invalid/malformed/missing key rejection (401), immediate revocation enforcement, expiration rejection, invalid geometry rejection (400), optional `Authorization: Bearer gm_live_...` support, JWT algorithm whitelist rejection (`none`/`HS384`), malformed token rejection, and asymmetric RS256 JWKS verification with key rotation.
 - `test_crs_utils.py` (14 tests): UTM zone selection across hemispheres, Prime Meridian, Date Line, Equator, New Delhi, London, Sydney, geographic CRS detection, and CRS string normalization.
 - `test_geo_processor.py` (14 tests): KML parsing and feature extraction, UTM metric measurement accuracy, handling Shapefiles missing `.prj` with coordinates in $[-180, 180]$ and projected coordinates (verifying unknown CRS status and withholding measurements), and valid projected Shapefile metric measurements.
 - `test_measurements.py` (6 tests): CSV header and row formatting, GeoJSON measurement property injection, and empty dataset handling.
 - `test_upload.py` (12 tests): File extension validation, uppercase extensions, path traversal stripping, file size validation, empty file rejection, and safe filename extraction.
 
-*(Total: $7 + 13 + 14 + 14 + 6 + 12 = 66$ tests)*
+*(Total: $7 + 16 + 14 + 14 + 6 + 12 = 69$ tests)*
 
 ### Running Frontend Production Build
 ```bash
 cd frontend
 npm run build
 ```
-**Build Result: Built in 544ms** (`tsc -b && vite build` transformed 128 modules with 0 errors).
+**Build Result: Built in 540ms** (`tsc -b && vite build` transformed 128 modules with 0 errors).
 
 ---
 
@@ -418,12 +418,21 @@ The database schema is additive and preserves all v1 tables without changes:
    CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
    ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
 
-   CREATE POLICY "Users can view and manage their own API keys"
-       ON api_keys FOR ALL
-       USING (auth.uid() = user_id)
-       WITH CHECK (auth.uid() = user_id);
+   DO $$
+   BEGIN
+       IF NOT EXISTS (
+           SELECT 1 FROM pg_policies 
+           WHERE tablename = 'api_keys' AND policyname = 'Users can view and manage their own API keys'
+       ) THEN
+           CREATE POLICY "Users can view and manage their own API keys"
+               ON api_keys FOR ALL
+               USING (auth.uid() = user_id)
+               WITH CHECK (auth.uid() = user_id);
+       END IF;
+   END
+   $$;
    ```
-*(Note: When the backend starts up, the `init_db()` lifespan hook in `database.py` also automatically verifies and creates the table if missing).*
+*(Note: When the backend starts up, the `init_db()` lifespan hook in `database.py` also automatically verifies and creates the table and indexes if missing).*
 
 ---
 
@@ -435,7 +444,8 @@ The database schema is additive and preserves all v1 tables without changes:
 | `ENVIRONMENT` | Runtime environment (`production`, `development`, `test`) | `production` |
 | `ALLOW_IN_MEMORY_DB` | Permits in-memory fallback in local dev/testing | `false` |
 | `ALLOWED_ORIGINS` | Permitted CORS frontend origins | `http://localhost:5173,https://geomeasure-studio.vercel.app` |
-| `SUPABASE_JWT_SECRET` | Supabase Auth JWT Secret (Project Settings $\to$ API $\to$ JWT Secret) | Required in production for validating user Bearer tokens |
+| `SUPABASE_URL` | Supabase Project URL (`https://[ref].supabase.co`) | Required for fetching JWKS if using asymmetric RS256/ES256 signing |
+| `SUPABASE_JWT_SECRET` | Supabase Auth JWT Secret (Project Settings $\to$ API $\to$ JWT Secret) | Required in production when using symmetric HS256 signing |
 | `MAX_UPLOAD_SIZE_MB` | Maximum file upload size limit | `50` |
 | `MAX_DECOMPRESSED_SIZE_MB` | Maximum uncompressed archive extraction limit | `200` |
 

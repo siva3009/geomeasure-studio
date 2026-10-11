@@ -17,6 +17,7 @@ psycopg2-binary==2.9.9
 
 # Authentication & Security
 pyjwt==2.15.1
+cryptography==50.0.2
 
 # Environment
 python-dotenv==1.0.1

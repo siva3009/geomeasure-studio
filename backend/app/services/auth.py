@@ -25,6 +25,41 @@ http_bearer = HTTPBearer(auto_error=False)
 # Development fallback secret when running tests or local development without a Supabase project secret
 DEV_JWT_SECRET = "dev-supabase-jwt-secret-for-local-testing"
 
+# Whitelist of permitted JWT signing algorithms
+ALLOWED_JWT_ALGORITHMS = {"HS256", "RS256", "ES256"}
+
+# Cached PyJWKClient for asymmetric signing keys (RS256/ES256)
+_jwks_client: Optional[jwt.PyJWKClient] = None
+
+
+def get_jwks_client() -> jwt.PyJWKClient:
+    """
+    Return or initialize a cached PyJWKClient pointing to the Supabase JWKS endpoint.
+    Caches keys with automatic cache refresh for key rotation.
+    """
+    global _jwks_client
+    if _jwks_client is None:
+        if not settings.supabase_url:
+            logger.error("SUPABASE_URL is required for asymmetric JWKS verification but is not configured.")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication server misconfiguration: SUPABASE_URL required for asymmetric key verification.",
+            )
+        jwks_url = f"{settings.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+        _jwks_client = jwt.PyJWKClient(
+            jwks_url,
+            cache_keys=True,
+            max_cached_keys=16,
+            lifespan=3600,
+        )
+    return _jwks_client
+
+
+def set_jwks_client(client: Optional[jwt.PyJWKClient]) -> None:
+    """Helper for testing or resetting the JWKS client."""
+    global _jwks_client
+    _jwks_client = client
+
 
 @dataclass
 class AuthenticatedUser:
@@ -64,6 +99,7 @@ async def get_current_user(
     """
     FastAPI dependency that validates a Supabase Auth JWT from the Authorization header.
     Required for API key management endpoints (/api/keys/).
+    Supports both legacy HS256 signing and modern Supabase asymmetric signing (RS256, ES256).
     API keys alone MUST NOT grant access to management endpoints.
     """
     if not auth_credentials or not auth_credentials.credentials:
@@ -74,17 +110,56 @@ async def get_current_user(
         )
 
     token = auth_credentials.credentials.strip()
-    secret = get_jwt_secret()
 
+    # 1. Inspect unverified header to determine signing algorithm
     try:
-        # Verify HS256 signature, expiration, and audience
-        payload = jwt.decode(
-            token,
-            secret,
-            algorithms=["HS256"],
-            audience="authenticated",
-            options={"require": ["exp", "sub"]},
+        header = jwt.get_unverified_header(token)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Malformed authentication token header.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+
+    alg = header.get("alg")
+    if not alg or alg not in ALLOWED_JWT_ALGORITHMS:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Unsupported or unpermitted JWT algorithm: '{alg}'. Only HS256, RS256, and ES256 are accepted.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 2. Verify signature and claims according to the algorithm family
+    try:
+        if alg == "HS256":
+            secret = get_jwt_secret()
+            payload = jwt.decode(
+                token,
+                secret,
+                algorithms=["HS256"],
+                audience="authenticated",
+                options={"require": ["exp", "sub"]},
+            )
+        else:
+            # Asymmetric verification (RS256 / ES256) via JWKS
+            jwks_client = get_jwks_client()
+            try:
+                signing_key = jwks_client.get_signing_key_from_jwt(token)
+            except jwt.PyJWKClientError as e:
+                logger.warning(f"JWKS key lookup failed for token: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or unrecognized JWT signing key identifier (kid).",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=[alg],
+                audience="authenticated",
+                options={"require": ["exp", "sub"]},
+            )
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -92,10 +167,10 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     except jwt.InvalidTokenError as e:
-        logger.warning(f"JWT validation failed: {e}")
+        logger.warning(f"JWT signature or claims validation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token.",
+            detail="Invalid authentication token signature or claims.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

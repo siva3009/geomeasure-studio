@@ -35,12 +35,43 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(user_id, revoked_at) 
 ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Authenticated users can view and manage only their own API keys
-CREATE POLICY "Users can view and manage their own API keys"
-    ON api_keys
-    FOR ALL
-    USING (auth.uid() = user_id)
-    WITH CHECK (auth.uid() = user_id);
+-- Made idempotent: Will not fail if executed multiple times in Supabase SQL Editor
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'api_keys' AND policyname = 'Users can view and manage their own API keys'
+    ) THEN
+        CREATE POLICY "Users can view and manage their own API keys"
+            ON api_keys
+            FOR ALL
+            USING (auth.uid() = user_id)
+            WITH CHECK (auth.uid() = user_id);
+    END IF;
+END
+$$;
+
+-- 5. Foreign key constraint: Associate user_id with Supabase auth.users if available
+-- Safely checks if auth.users exists before adding the constraint (ensures compatibility with non-Supabase environments)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_schema = 'auth' AND table_name = 'users'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'fk_api_keys_user_id'
+    ) THEN
+        ALTER TABLE api_keys 
+            ADD CONSTRAINT fk_api_keys_user_id 
+            FOREIGN KEY (user_id) 
+            REFERENCES auth.users(id) 
+            ON DELETE CASCADE;
+    END IF;
+END
+$$;
 
 -- Note: FastAPI backend connects with database connection string (service/postgres role),
 -- which bypasses RLS while enforcing strict user_id ownership in backend application logic.
 -- Direct PostgREST or Supabase Client access adheres strictly to the RLS policy above.
+

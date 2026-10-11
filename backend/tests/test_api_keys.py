@@ -437,3 +437,121 @@ def test_bearer_gm_live_header_supported():
     )
     assert res.status_code == 200
     assert res.json()["length_meters"] is not None
+
+
+# ==============================================================================
+# 5. JWT Security & Asymmetric Verification Preflight Tests
+# ==============================================================================
+
+def test_jwt_unpermitted_algorithm_rejected():
+    """Unpermitted algorithms (such as 'none' or 'HS384') are strictly rejected."""
+    # 1. 'none' algorithm
+    none_token = jwt.encode(
+        {"sub": str(USER_A_ID), "aud": "authenticated", "exp": int(time.time()) + 3600},
+        key="",
+        algorithm="none",
+    )
+    res_none = client.get("/api/keys/", headers={"Authorization": f"Bearer {none_token}"})
+    assert res_none.status_code == 401
+    assert "unsupported or unpermitted" in res_none.json()["detail"].lower()
+
+    # 2. HS384 algorithm (not on whitelist)
+    hs384_token = jwt.encode(
+        {"sub": str(USER_A_ID), "aud": "authenticated", "exp": int(time.time()) + 3600},
+        DEV_JWT_SECRET,
+        algorithm="HS384",
+    )
+    res_hs384 = client.get("/api/keys/", headers={"Authorization": f"Bearer {hs384_token}"})
+    assert res_hs384.status_code == 401
+    assert "unsupported or unpermitted" in res_hs384.json()["detail"].lower()
+
+
+def test_jwt_malformed_token_rejected():
+    """Tokens with malformed structures or non-UUID subjects are rejected with 401."""
+    # Garbage string
+    res_garbage = client.get("/api/keys/", headers={"Authorization": "Bearer not-a-valid-token"})
+    assert res_garbage.status_code == 401
+
+    # Token with non-UUID subject
+    bad_sub_token = jwt.encode(
+        {"sub": "not-a-valid-uuid", "aud": "authenticated", "exp": int(time.time()) + 3600},
+        DEV_JWT_SECRET,
+        algorithm="HS256",
+    )
+    res_bad_sub = client.get("/api/keys/", headers={"Authorization": f"Bearer {bad_sub_token}"})
+    assert res_bad_sub.status_code == 401
+    assert "valid uuid" in res_bad_sub.json()["detail"].lower()
+
+
+def test_jwt_asymmetric_rs256_verification_and_key_rotation():
+    """Asymmetric RS256 token verification succeeds via JWKS client and handles unknown key IDs."""
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives import serialization
+    from app.services.auth import set_jwks_client
+
+    # Generate an ephemeral test RSA key pair
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+    class MockSigningKey:
+        def __init__(self, key):
+            self.key = key
+
+    class MockJWKClient:
+        def __init__(self, keys):
+            self.keys = keys
+
+        def get_signing_key_from_jwt(self, token):
+            hdr = jwt.get_unverified_header(token)
+            kid = hdr.get("kid")
+            if kid in self.keys:
+                return MockSigningKey(self.keys[kid])
+            raise jwt.PyJWKClientError(f"Key ID '{kid}' not found in mock JWKS.")
+
+    # Configure mock JWKS client
+    set_jwks_client(MockJWKClient({"supabase-rsa-key-1": public_pem}))
+
+    try:
+        # 1. Valid RS256 token with matching kid
+        rs256_token = jwt.encode(
+            {
+                "sub": str(USER_A_ID),
+                "email": "asymmetric_user@example.com",
+                "aud": "authenticated",
+                "exp": int(time.time()) + 3600,
+            },
+            private_key,
+            algorithm="RS256",
+            headers={"kid": "supabase-rsa-key-1"},
+        )
+
+        res_valid = client.post(
+            "/api/keys/",
+            json={"name": "RS256 Integration Key"},
+            headers={"Authorization": f"Bearer {rs256_token}"},
+        )
+        assert res_valid.status_code == 201
+        assert res_valid.json()["name"] == "RS256 Integration Key"
+
+        # 2. RS256 token with unknown/rotated kid
+        unknown_kid_token = jwt.encode(
+            {
+                "sub": str(USER_A_ID),
+                "aud": "authenticated",
+                "exp": int(time.time()) + 3600,
+            },
+            private_key,
+            algorithm="RS256",
+            headers={"kid": "supabase-unknown-rotated-key"},
+        )
+        res_unknown = client.get("/api/keys/", headers={"Authorization": f"Bearer {unknown_kid_token}"})
+        assert res_unknown.status_code == 401
+        assert "unrecognized jwt signing key identifier" in res_unknown.json()["detail"].lower()
+
+    finally:
+        # Reset JWKS client
+        set_jwks_client(None)
+
