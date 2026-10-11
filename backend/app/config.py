@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # CORS
     allowed_origins: str = "http://localhost:5173"
 
+    # Supabase Auth
+    supabase_jwt_secret: str = ""
+    supabase_url: str = ""
+
     # Upload limits
     max_upload_size_mb: int = 50
     max_decompressed_size_mb: int = 200

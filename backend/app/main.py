@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db
-from app.routers import health, upload, files, measurements
+from app.routers import health, upload, files, measurements, api_keys, external_v1
 
 # Configure logging
 logging.basicConfig(
@@ -44,7 +44,7 @@ app = FastAPI(
         "Geospatial file measurement API. Upload KML or zipped Shapefile "
         "files to extract geometry metadata and compute accurate measurements."
     ),
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -62,6 +62,8 @@ app.include_router(health.router)
 app.include_router(upload.router)
 app.include_router(files.router)
 app.include_router(measurements.router)
+app.include_router(api_keys.router)
+app.include_router(external_v1.router)
 
 
 @app.get("/")

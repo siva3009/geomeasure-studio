@@ -35,6 +35,12 @@ A production-grade geospatial file measurement platform. Upload **KML** and **zi
 - [Production Database & Supabase Pooler Configuration](#production-database--supabase-pooler-configuration)
 - [Setup & Local Installation](#setup--local-installation)
 - [Automated Testing & Verification](#automated-testing--verification)
+- [v2 Phase 1: Secure API Key Infrastructure](#v2-phase-1-secure-api-key-infrastructure)
+  - [API Key Architecture & Security](#api-key-architecture--security)
+  - [Database Migration & RLS](#database-migration--rls)
+  - [API Key Management Endpoints](#api-key-management-endpoints)
+  - [External Geometry Measurement Endpoint (v1)](#external-geometry-measurement-endpoint-v1)
+  - [Authentication Error Reference](#authentication-error-reference)
 - [API Reference](#api-reference)
 - [Measurement Units & Output Standards](#measurement-units--output-standards)
 - [Security & Validation](#security--validation)
@@ -333,7 +339,7 @@ Frontend runs at `http://localhost:5173`.
 
 ## Automated Testing & Verification
 
-The backend test suite contains **53 automated tests** covering end-to-end API workflows, geospatial projection logic, and production safety guards.
+The backend test suite contains **66 automated tests** covering end-to-end API workflows, API key infrastructure, geospatial projection logic, and production safety guards.
 
 ### Running Backend Tests
 ```bash
@@ -341,35 +347,262 @@ cd backend
 .venv/Scripts/python -m pytest -v
 ```
 
-**Test Results: 53 passed in 13.74s**
+**Test Results: 66 passed in 13.41s**
 - `test_api.py` (7 tests): End-to-end API lifecycle, KML upload, Shapefile upload, invalid extension rejection, production database safety (HTTP 503 enforcement when DB is disconnected), and production health check verification.
+- `test_api_keys.py` (13 tests): Cryptographic key creation, plaintext return-only-at-creation policy, SHA-256 database hashing verification, metadata isolation (no secrets or hashes in list/inspect), user ownership isolation (cross-user rejection), unauthenticated rejection (401), external v1 measurement endpoint authorization, invalid/malformed/missing key rejection (401), immediate revocation enforcement, expiration rejection, invalid geometry rejection (400), and optional `Authorization: Bearer gm_live_...` support.
 - `test_crs_utils.py` (14 tests): UTM zone selection across hemispheres, Prime Meridian, Date Line, Equator, New Delhi, London, Sydney, geographic CRS detection, and CRS string normalization.
 - `test_geo_processor.py` (14 tests): KML parsing and feature extraction, UTM metric measurement accuracy, handling Shapefiles missing `.prj` with coordinates in $[-180, 180]$ and projected coordinates (verifying unknown CRS status and withholding measurements), and valid projected Shapefile metric measurements.
 - `test_measurements.py` (6 tests): CSV header and row formatting, GeoJSON measurement property injection, and empty dataset handling.
 - `test_upload.py` (12 tests): File extension validation, uppercase extensions, path traversal stripping, file size validation, empty file rejection, and safe filename extraction.
 
-*(Total: $7 + 14 + 14 + 6 + 12 = 53$ tests)*
+*(Total: $7 + 13 + 14 + 14 + 6 + 12 = 66$ tests)*
 
 ### Running Frontend Production Build
 ```bash
 cd frontend
 npm run build
 ```
-**Build Result: Built in 884ms** (`tsc -b && vite build` transformed 128 modules with 0 errors).
+**Build Result: Built in 544ms** (`tsc -b && vite build` transformed 128 modules with 0 errors).
+
+---
+
+## v2 Phase 1: Secure API Key Infrastructure
+
+GeoMeasure Studio v2 introduces secure, programmatic access via API keys. External applications can authenticate using API keys to calculate accurate metric measurements on arbitrary GeoJSON geometries without manually uploading files.
+
+### API Key Architecture & Security
+1. **Cryptographic Generation**:
+   - Generated using Python's `secrets.token_urlsafe(32)` providing 256 bits of cryptographic entropy.
+   - Standard prefix format: `gm_live_<secret>` (e.g. `gm_live_tJ7qK8...`).
+2. **One-Time Plaintext Exposure**:
+   - The plaintext API key is returned **strictly once** in the response of `POST /api/keys/`.
+   - The server **never stores plaintext keys** and cannot recover them.
+3. **Database Hashing**:
+   - The database stores a `SHA-256` hex digest (`key_hash`) and a non-secret display prefix (`gm_live_` + first 8 characters, e.g. `gm_live_aB3dE8f2`).
+   - The hash is indexed with a `UNIQUE` constraint for $O(1)$ constant-time lookup.
+   - List, inspection, usage, and error endpoints never disclose the hash or the secret.
+4. **User Ownership Enforcement**:
+   - Key management endpoints (`/api/keys/`) require a valid Supabase Auth JWT token (`Authorization: Bearer <token>`).
+   - An API key alone **cannot** access or manage the dashboard.
+   - Cross-user key access is blocked: users cannot view, inspect, or revoke keys owned by other users.
+5. **Immediate Revocation**:
+   - Soft revocation sets `revoked_at = now()`.
+   - Revocation takes effect immediately for all subsequent external API calls while preserving request counts and audit history.
+
+---
+
+### Database Migration & RLS
+
+The database schema is additive and preserves all v1 tables without changes:
+- Standalone migration script: [`backend/migrations/002_api_keys.sql`](file:///c:/Users/my%20pc/Downloads/GeoMeasure%20Studio/backend/migrations/002_api_keys.sql)
+- Combined DDL script: [`backend/schema.sql`](file:///c:/Users/my%20pc/Downloads/GeoMeasure%20Studio/backend/schema.sql)
+
+#### Applying the Migration
+1. Open your Supabase Dashboard $\to$ **SQL Editor**.
+2. Run [`backend/migrations/002_api_keys.sql`](file:///c:/Users/my%20pc/Downloads/GeoMeasure%20Studio/backend/migrations/002_api_keys.sql):
+   ```sql
+   CREATE TABLE IF NOT EXISTS api_keys (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       user_id UUID NOT NULL,
+       name TEXT NOT NULL,
+       key_hash TEXT NOT NULL UNIQUE,
+       prefix TEXT NOT NULL,
+       created_at TIMESTAMPTZ DEFAULT now(),
+       last_used_at TIMESTAMPTZ,
+       revoked_at TIMESTAMPTZ,
+       expires_at TIMESTAMPTZ,
+       request_count BIGINT NOT NULL DEFAULT 0
+   );
+
+   CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
+   CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+   ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+
+   CREATE POLICY "Users can view and manage their own API keys"
+       ON api_keys FOR ALL
+       USING (auth.uid() = user_id)
+       WITH CHECK (auth.uid() = user_id);
+   ```
+*(Note: When the backend starts up, the `init_db()` lifespan hook in `database.py` also automatically verifies and creates the table if missing).*
+
+---
+
+### Environment Variables
+
+| Variable | Description | Example / Default |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | Supabase PostgreSQL pooled URI | `postgresql://postgres.[ref]:[pass]@[pooler]:5432/postgres?sslmode=require` |
+| `ENVIRONMENT` | Runtime environment (`production`, `development`, `test`) | `production` |
+| `ALLOW_IN_MEMORY_DB` | Permits in-memory fallback in local dev/testing | `false` |
+| `ALLOWED_ORIGINS` | Permitted CORS frontend origins | `http://localhost:5173,https://geomeasure-studio.vercel.app` |
+| `SUPABASE_JWT_SECRET` | Supabase Auth JWT Secret (Project Settings $\to$ API $\to$ JWT Secret) | Required in production for validating user Bearer tokens |
+| `MAX_UPLOAD_SIZE_MB` | Maximum file upload size limit | `50` |
+| `MAX_DECOMPRESSED_SIZE_MB` | Maximum uncompressed archive extraction limit | `200` |
+
+---
+
+### API Key Management Endpoints
+
+All management endpoints require user authentication: `Authorization: Bearer <supabase-jwt>`.
+
+#### 1. Create an API Key (`POST /api/keys/`)
+**Request:**
+```bash
+curl -X POST "https://geomeasure-backend.onrender.com/api/keys/" \
+  -H "Authorization: Bearer <YOUR-SUPABASE-JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Production GIS Pipeline", "expires_in_days": 90}'
+```
+**Response (`201 Created`):**
+```json
+{
+  "id": "e4f8b2d1-93c6-4b2e-a579-3f0a1c890e12",
+  "name": "Production GIS Pipeline",
+  "prefix": "gm_live_k9X2mQ7L",
+  "api_key": "gm_live_k9X2mQ7L8vB4zR1pT6yW0uN5sD3eA8jF",
+  "created_at": "2026-10-11T21:40:00Z",
+  "expires_at": "2027-01-09T21:40:00Z"
+}
+```
+*(Save the `api_key` now; it will never be returned again).*
+
+#### 2. List API Keys (`GET /api/keys/`)
+**Request:**
+```bash
+curl "https://geomeasure-backend.onrender.com/api/keys/" \
+  -H "Authorization: Bearer <YOUR-SUPABASE-JWT>"
+```
+**Response (`200 OK`):**
+```json
+[
+  {
+    "id": "e4f8b2d1-93c6-4b2e-a579-3f0a1c890e12",
+    "name": "Production GIS Pipeline",
+    "prefix": "gm_live_k9X2mQ7L",
+    "created_at": "2026-10-11T21:40:00Z",
+    "last_used_at": "2026-10-11T21:42:15Z",
+    "revoked_at": null,
+    "expires_at": "2027-01-09T21:40:00Z",
+    "is_active": true,
+    "request_count": 42
+  }
+]
+```
+
+#### 3. Revoke an API Key (`DELETE /api/keys/{id}/`)
+**Request:**
+```bash
+curl -X DELETE "https://geomeasure-backend.onrender.com/api/keys/e4f8b2d1-93c6-4b2e-a579-3f0a1c890e12/" \
+  -H "Authorization: Bearer <YOUR-SUPABASE-JWT>"
+```
+**Response (`200 OK`):**
+```json
+{
+  "id": "e4f8b2d1-93c6-4b2e-a579-3f0a1c890e12",
+  "name": "Production GIS Pipeline",
+  "prefix": "gm_live_k9X2mQ7L",
+  "created_at": "2026-10-11T21:40:00Z",
+  "last_used_at": "2026-10-11T21:42:15Z",
+  "revoked_at": "2026-10-11T21:45:00Z",
+  "expires_at": "2027-01-09T21:40:00Z",
+  "is_active": false,
+  "request_count": 42
+}
+```
+
+---
+
+### External Geometry Measurement Endpoint (v1)
+
+Authenticate using header `X-API-Key: gm_live_YOUR_KEY_HERE` (or `Authorization: Bearer gm_live_YOUR_KEY_HERE`).
+
+#### `POST /api/v1/measurements/`
+Submit an arbitrary GeoJSON geometry with an explicit CRS to compute planar metric measurements.
+
+**Request:**
+```bash
+curl -X POST "https://geomeasure-backend.onrender.com/api/v1/measurements/" \
+  -H "X-API-Key: gm_live_YOUR_KEY_HERE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [77.2090, 28.6139],
+          [77.2190, 28.6139],
+          [77.2190, 28.6239],
+          [77.2090, 28.6239],
+          [77.2090, 28.6139]
+        ]
+      ]
+    },
+    "crs": "EPSG:4326",
+    "properties": {
+      "parcel_name": "Block 4A"
+    }
+  }'
+```
+
+**Response (`200 OK`):**
+```json
+{
+  "geometry_type": "Polygon",
+  "source_crs": "EPSG:4326",
+  "measurement_crs": "EPSG:32643",
+  "area_sq_meters": 1085412.3012,
+  "length_meters": null,
+  "area_hectares": 108.5412,
+  "area_sq_km": 1.0854,
+  "length_km": null,
+  "measurement_unit": "meters",
+  "properties": {
+    "parcel_name": "Block 4A"
+  }
+}
+```
+
+---
+
+### Authentication Error Reference
+
+| Status Code | Scenario | Response Body |
+| :--- | :--- | :--- |
+| `401 Unauthorized` | Missing `X-API-Key` | `{"detail": "Missing API key. Provide a valid key via the 'X-API-Key' header."}` |
+| `401 Unauthorized` | Malformed key prefix | `{"detail": "Invalid API key format. Keys must start with 'gm_live_'."}` |
+| `401 Unauthorized` | Unrecognized key | `{"detail": "Invalid or unrecognized API key."}` |
+| `401 Unauthorized` | Key has been revoked | `{"detail": "API key has been revoked and can no longer be used."}` |
+| `401 Unauthorized` | Key has expired | `{"detail": "API key has expired."}` |
+| `400 Bad Request` | Unknown CRS submitted | `{"detail": "An explicit, valid Coordinate Reference System (CRS) is required. Unknown CRS is not permitted."}` |
+| `400 Bad Request` | Malformed GeoJSON | `{"detail": "Invalid GeoJSON geometry structure: ..."}` |
+| `404 Not Found` | Accessing another user's key | `{"detail": "API key not found."}` |
 
 ---
 
 ## API Reference
 
-| Method | Endpoint | Description | Query Parameters / Body |
+### Core File & Geometry Endpoints (v1)
+
+| Method | Endpoint | Description | Auth Required |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/files/` | Upload `.kml` or `.zip` file | Multipart form: `file` |
-| `GET` | `/api/files/` | List all uploaded files | — |
-| `GET` | `/api/files/{id}/` | Retrieve file details & GeoJSON | — |
-| `GET` | `/api/files/{id}/measurements/` | Retrieve measurements | `?format=json`, `?format=csv`, `?format=geojson` |
-| `DELETE` | `/api/files/{id}/` | Delete file & measurements | — |
-| `GET` | `/api/health/` | Health & DB connectivity check | — |
-| `GET` | `/docs` | Interactive Swagger UI | — |
+| `POST` | `/api/files/` | Upload `.kml` or `.zip` file | Public (v1 Web App) |
+| `GET` | `/api/files/` | List all uploaded files | Public (v1 Web App) |
+| `GET` | `/api/files/{id}/` | Retrieve file details & GeoJSON | Public (v1 Web App) |
+| `GET` | `/api/files/{id}/measurements/` | Retrieve measurements (`json`, `csv`, `geojson`) | Public (v1 Web App) |
+| `DELETE` | `/api/files/{id}/` | Delete file & measurements | Public (v1 Web App) |
+| `GET` | `/api/health/` | Health & DB connectivity check | Public |
+| `GET` | `/docs` | Interactive Swagger UI | Public |
+| `POST` | `/api/v1/measurements/` | External programmatic geometry measurement | **`X-API-Key` Required** |
+
+### API Key Management Endpoints (v2 Phase 1)
+
+| Method | Endpoint | Description | Auth Required |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/keys/` | Create a new API key | **Bearer JWT (User)** |
+| `GET` | `/api/keys/` | List user's active/revoked API keys | **Bearer JWT (User)** |
+| `GET` | `/api/keys/{id}/` | Get non-sensitive key metadata | **Bearer JWT (User)** |
+| `DELETE` | `/api/keys/{id}/` | Revoke an API key immediately | **Bearer JWT (User)** |
+| `GET` | `/api/keys/{id}/usage/` | Get usage count and last-used timestamp | **Bearer JWT (User)** |
 
 ---
 

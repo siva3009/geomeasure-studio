@@ -12,10 +12,10 @@ import tempfile
 import zipfile
 from typing import Dict, Any, List, Optional, Tuple
 
-from shapely.geometry import mapping
+from shapely.geometry import mapping, shape
 from shapely import wkt
 
-from app.utils.crs_utils import get_utm_crs_string, is_geographic_crs, crs_to_string
+from app.utils.crs_utils import get_utm_crs_string, is_geographic_crs, crs_to_string, validate_crs
 from app.services.file_validator import validate_zip_archive
 
 logger = logging.getLogger(__name__)
@@ -291,3 +291,100 @@ def process_uploaded_file(
     measurements, geojson = compute_measurements(gdf, source_crs)
 
     return source_crs, feature_count, measurements, geojson
+
+
+def measure_single_geometry(
+    geometry_dict: Dict[str, Any],
+    source_crs: str,
+    properties: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Measure an individual GeoJSON geometry submitted via the external API.
+    Reuses existing UTM projection selection and metric calculation logic.
+
+    Args:
+        geometry_dict: GeoJSON geometry dictionary (e.g. {"type": "Polygon", "coordinates": [...]})
+        source_crs: Coordinate reference system (e.g. "EPSG:4326").
+        properties: Optional feature attributes.
+
+    Returns:
+        Structured measurement dictionary with metric area and length.
+
+    Raises:
+        GeoProcessingError: On invalid input, unsupported geometry, or unknown CRS.
+    """
+    # 1. Enforce strict CRS validation - never silently guess unknown CRS
+    if not source_crs or source_crs.strip().lower().startswith("unknown"):
+        raise GeoProcessingError(
+            "An explicit, valid Coordinate Reference System (CRS) is required. Unknown CRS is not permitted."
+        )
+    if not validate_crs(source_crs):
+        raise GeoProcessingError(
+            f"Invalid or unrecognized Coordinate Reference System: '{source_crs}'"
+        )
+
+    # 2. Parse GeoJSON geometry into Shapely shape
+    try:
+        geom = shape(geometry_dict)
+    except Exception as e:
+        raise GeoProcessingError(f"Invalid GeoJSON geometry structure: {str(e)}")
+
+    if geom is None or geom.is_empty:
+        raise GeoProcessingError("Geometry is empty or null.")
+
+    geom_type = geom.geom_type
+    if geom_type not in SUPPORTED_TYPES:
+        raise GeoProcessingError(f"Unsupported geometry type: '{geom_type}'.")
+
+    # 3. Calculate metric measurements via local UTM zone reprojection
+    measurement_crs = None
+    area_sq_meters = None
+    length_meters = None
+
+    if geom_type in POINT_TYPES:
+        # Points have no length or area
+        pass
+    else:
+        try:
+            centroid = geom.centroid
+            if not is_geographic_crs(source_crs):
+                import pyproj
+                from shapely.ops import transform
+
+                project = pyproj.Transformer.from_crs(
+                    source_crs, "EPSG:4326", always_xy=True
+                ).transform
+                centroid_4326 = transform(project, centroid)
+                lon, lat = centroid_4326.x, centroid_4326.y
+            else:
+                lon, lat = centroid.x, centroid.y
+
+            utm_crs = get_utm_crs_string(lon, lat)
+            measurement_crs = utm_crs
+
+            # Reproject geometry to local UTM
+            geom_series = gpd.GeoSeries([geom], crs=source_crs)
+            geom_projected = geom_series.to_crs(utm_crs).iloc[0]
+
+            if geom_type in POLYGON_TYPES:
+                area_sq_meters = round(geom_projected.area, 4)
+            elif geom_type in LINE_TYPES:
+                length_meters = round(geom_projected.length, 4)
+
+        except Exception as e:
+            logger.error(f"Measurement calculation failed: {e}")
+            raise GeoProcessingError(f"Measurement calculation failed: {str(e)}")
+
+    return {
+        "geometry_type": geom_type,
+        "source_crs": source_crs,
+        "measurement_crs": measurement_crs,
+        "area_sq_meters": area_sq_meters,
+        "length_meters": length_meters,
+        "area_hectares": round(area_sq_meters / 10000.0, 4) if area_sq_meters is not None else None,
+        "area_sq_km": round(area_sq_meters / 1000000.0, 4) if area_sq_meters is not None else None,
+        "length_km": round(length_meters / 1000.0, 4) if length_meters is not None else None,
+        "measurement_unit": "meters",
+        "properties": properties or {},
+    }
+
