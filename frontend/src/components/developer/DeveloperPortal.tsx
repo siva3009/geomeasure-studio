@@ -4,7 +4,8 @@
    ====================================================== */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
+
 import { listApiKeys, createApiKey, revokeApiKey } from '../../api/client';
 import type { ApiKeyMetadata, CreateApiKeyResponse } from '../../types';
 import { OverviewTab } from './OverviewTab';

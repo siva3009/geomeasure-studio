@@ -555,3 +555,117 @@ def test_jwt_asymmetric_rs256_verification_and_key_rotation():
         # Reset JWKS client
         set_jwks_client(None)
 
+
+# ==============================================================================
+# 6. End-to-End QA Integration Tests (Point Geometry & Projected CRS)
+# ==============================================================================
+
+def test_point_geometry_measurement_endpoint():
+    """Verify Point geometry submission and its documented output behavior (no area/length)."""
+    token = create_token(USER_A_ID)
+    create_res = client.post(
+        "/api/keys/",
+        json={"name": "Point Test Key"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    api_key = create_res.json()["api_key"]
+
+    res = client.post(
+        "/api/v1/measurements/",
+        json={
+            "geometry": {"type": "Point", "coordinates": [77.2090, 28.6139]},
+            "crs": "EPSG:4326",
+            "properties": {"landmark": "India Gate"},
+        },
+        headers={"X-API-Key": api_key},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["geometry_type"] == "Point"
+    assert data["source_crs"] == "EPSG:4326"
+    assert data["area_sq_meters"] is None
+    assert data["length_meters"] is None
+    assert data["properties"]["landmark"] == "India Gate"
+
+
+def test_linestring_with_projected_crs():
+    """Verify LineString measurement with an explicit projected CRS (EPSG:3857)."""
+    token = create_token(USER_A_ID)
+    create_res = client.post(
+        "/api/keys/",
+        json={"name": "Projected CRS Key"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    api_key = create_res.json()["api_key"]
+
+    res = client.post(
+        "/api/v1/measurements/",
+        json={
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[8595000, 3326000], [8596000, 3327000]],
+            },
+            "crs": "EPSG:3857",
+        },
+        headers={"X-API-Key": api_key},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["geometry_type"] == "LineString"
+    assert data["source_crs"] == "EPSG:3857"
+    assert data["length_meters"] is not None
+    assert data["length_meters"] > 0
+    assert data["length_km"] is not None
+
+
+def test_full_api_key_lifecycle_and_usage_tracking():
+    """Verify full sequential lifecycle: Create -> Measure -> Usage Counter -> Revoke -> Immediate 401."""
+    token = create_token(USER_A_ID)
+
+    # 1. Create key
+    create_res = client.post(
+        "/api/keys/",
+        json={"name": "Lifecycle Integration Key"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert create_res.status_code == 201
+    created_data = create_res.json()
+    key_id = created_data["id"]
+    api_key = created_data["api_key"]
+
+    # 2. First measurement call
+    res_1 = client.post(
+        "/api/v1/measurements/",
+        json={"geometry": SAMPLE_POLYGON, "crs": "EPSG:4326"},
+        headers={"X-API-Key": api_key},
+    )
+    assert res_1.status_code == 200
+
+    # 3. Second measurement call
+    res_2 = client.post(
+        "/api/v1/measurements/",
+        json={"geometry": SAMPLE_LINESTRING, "crs": "EPSG:4326"},
+        headers={"X-API-Key": api_key},
+    )
+    assert res_2.status_code == 200
+
+    # 4. Check usage counter is 2
+    usage_res = client.get(f"/api/keys/{key_id}/usage/", headers={"Authorization": f"Bearer {token}"})
+    assert usage_res.status_code == 200
+    assert usage_res.json()["request_count"] == 2
+
+    # 5. Revoke key
+    revoke_res = client.delete(f"/api/keys/{key_id}/", headers={"Authorization": f"Bearer {token}"})
+    assert revoke_res.status_code == 200
+    assert revoke_res.json()["is_active"] is False
+
+    # 6. Verify subsequent call fails with 401
+    post_revoke_res = client.post(
+        "/api/v1/measurements/",
+        json={"geometry": SAMPLE_POLYGON, "crs": "EPSG:4326"},
+        headers={"X-API-Key": api_key},
+    )
+    assert post_revoke_res.status_code == 401
+    assert "revoked" in post_revoke_res.json()["detail"].lower()
+
+

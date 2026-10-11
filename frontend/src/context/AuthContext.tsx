@@ -27,14 +27,14 @@ const AuthContext = createContext<AuthContextType>({
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
   const configured = isSupabaseConfigured();
+  const [loading, setLoading] = useState<boolean>(configured);
 
   useEffect(() => {
     if (!configured || !supabase) {
-      setLoading(false);
       return;
     }
+
 
     // Check active session
     supabase.auth.getSession().then(({ data: { session: activeSession } }) => {
@@ -112,7 +112,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 };
 
 export { AuthContext };
-export { useAuth } from './useAuth';
+
 
 
 

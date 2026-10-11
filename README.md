@@ -345,7 +345,7 @@ Frontend runs at `http://localhost:5173`.
 
 ## Automated Testing & Verification
 
-The backend test suite contains **69 automated tests** covering end-to-end API workflows, API key infrastructure, geospatial projection logic, and production safety guards.
+The backend test suite contains **72 automated tests** covering end-to-end API workflows, API key infrastructure, geospatial projection logic, and production safety guards.
 
 ### Running Backend Tests
 ```bash
@@ -353,15 +353,16 @@ cd backend
 .venv/Scripts/python -m pytest -v
 ```
 
-**Test Results: 69 passed in 13.51s**
+**Test Results: 72 passed in 14.06s**
 - `test_api.py` (7 tests): End-to-end API lifecycle, KML upload, Shapefile upload, invalid extension rejection, production database safety (HTTP 503 enforcement when DB is disconnected), and production health check verification.
-- `test_api_keys.py` (16 tests): Cryptographic key creation, plaintext return-only-at-creation policy, SHA-256 database hashing verification, metadata isolation (no secrets or hashes in list/inspect), user ownership isolation (cross-user rejection), unauthenticated rejection (401), external v1 measurement endpoint authorization, invalid/malformed/missing key rejection (401), immediate revocation enforcement, expiration rejection, invalid geometry rejection (400), optional `Authorization: Bearer gm_live_...` support, JWT algorithm whitelist rejection (`none`/`HS384`), malformed token rejection, and asymmetric RS256 JWKS verification with key rotation.
+- `test_api_keys.py` (19 tests): Cryptographic key creation, plaintext return-only-at-creation policy, SHA-256 database hashing verification, metadata isolation (no secrets or hashes in list/inspect), user ownership isolation (cross-user rejection), unauthenticated rejection (401), external v1 measurement endpoint authorization, invalid/malformed/missing key rejection (401), immediate revocation enforcement, expiration rejection, invalid geometry rejection (400), optional `Authorization: Bearer gm_live_...` support, JWT algorithm whitelist rejection (`none`/`HS384`), malformed token rejection, asymmetric RS256 JWKS verification with key rotation, Point geometry output verification, LineString with projected CRS (`EPSG:3857`), and full end-to-end sequential lifecycle QA.
 - `test_crs_utils.py` (14 tests): UTM zone selection across hemispheres, Prime Meridian, Date Line, Equator, New Delhi, London, Sydney, geographic CRS detection, and CRS string normalization.
 - `test_geo_processor.py` (14 tests): KML parsing and feature extraction, UTM metric measurement accuracy, handling Shapefiles missing `.prj` with coordinates in $[-180, 180]$ and projected coordinates (verifying unknown CRS status and withholding measurements), and valid projected Shapefile metric measurements.
 - `test_measurements.py` (6 tests): CSV header and row formatting, GeoJSON measurement property injection, and empty dataset handling.
 - `test_upload.py` (12 tests): File extension validation, uppercase extensions, path traversal stripping, file size validation, empty file rejection, and safe filename extraction.
 
-*(Total: $7 + 16 + 14 + 14 + 6 + 12 = 69$ tests)*
+*(Total: $7 + 19 + 14 + 14 + 6 + 12 = 72$ tests)*
+
 
 ### Running Frontend Production Build
 ```bash
