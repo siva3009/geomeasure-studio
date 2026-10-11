@@ -8,6 +8,14 @@ import type {
   FileListItem,
   MeasurementsResponse,
   HealthResponse,
+  ApiKeyMetadata,
+  CreateApiKeyRequest,
+  CreateApiKeyResponse,
+  ApiKeyUsage,
+  UsageSummary,
+  KeyAnalytics,
+  GeometryMeasurementRequest,
+  PlaygroundExecutionResult,
 } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -72,15 +80,6 @@ export async function deleteFile(fileId: string): Promise<void> {
    v2 Phase 2: API Key Management API Endpoints
    ====================================================== */
 
-import type {
-  ApiKeyMetadata,
-  CreateApiKeyRequest,
-  CreateApiKeyResponse,
-  ApiKeyUsage,
-  GeometryMeasurementRequest,
-  PlaygroundExecutionResult,
-} from '../types';
-
 /** List all API keys owned by the authenticated user */
 export async function listApiKeys(accessToken: string): Promise<ApiKeyMetadata[]> {
   const { data } = await api.get<ApiKeyMetadata[]>('/api/keys/', {
@@ -133,9 +132,28 @@ export async function getApiKeyUsage(
   return data;
 }
 
+/** Retrieve aggregate usage analytics across all owned keys */
+export async function getUsageSummary(accessToken: string): Promise<UsageSummary> {
+  const { data } = await api.get<UsageSummary>('/api/keys/usage/summary/', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return data;
+}
+
+/** Retrieve granular analytics for a single API key */
+export async function getKeyAnalytics(
+  keyId: string,
+  accessToken: string
+): Promise<KeyAnalytics> {
+  const { data } = await api.get<KeyAnalytics>(`/api/keys/${keyId}/analytics/`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return data;
+}
+
 /**
  * Execute external geometry measurement via the API Playground.
- * Sends the request with the X-API-Key header and tracks latency.
+ * Sends the request with the X-API-Key header, tracks latency, and captures rate-limit headers.
  */
 export async function testMeasurementPlayground(
   payload: GeometryMeasurementRequest,
@@ -150,20 +168,35 @@ export async function testMeasurementPlayground(
       },
     });
     const durationMs = Math.round(performance.now() - startTime);
+    const headers = {
+      rateLimitLimit: res.headers['x-ratelimit-limit'] ?? res.headers['X-RateLimit-Limit'],
+      rateLimitRemaining: res.headers['x-ratelimit-remaining'] ?? res.headers['X-RateLimit-Remaining'],
+      rateLimitReset: res.headers['x-ratelimit-reset'] ?? res.headers['X-RateLimit-Reset'],
+      retryAfter: res.headers['retry-after'] ?? res.headers['Retry-After'],
+    };
     return {
       status: res.status,
       statusText: res.statusText || 'OK',
       durationMs,
       data: res.data,
+      headers,
     };
   } catch (err: unknown) {
     const durationMs = Math.round(performance.now() - startTime);
     if (axios.isAxiosError(err)) {
+      const respHeaders = err.response?.headers;
+      const headers = respHeaders ? {
+        rateLimitLimit: respHeaders['x-ratelimit-limit'] ?? respHeaders['X-RateLimit-Limit'],
+        rateLimitRemaining: respHeaders['x-ratelimit-remaining'] ?? respHeaders['X-RateLimit-Remaining'],
+        rateLimitReset: respHeaders['x-ratelimit-reset'] ?? respHeaders['X-RateLimit-Reset'],
+        retryAfter: respHeaders['retry-after'] ?? respHeaders['Retry-After'],
+      } : undefined;
       return {
         status: err.response?.status || 500,
         statusText: err.response?.statusText || 'Error',
         durationMs,
         data: err.response?.data || { detail: err.message },
+        headers,
         error: err.response?.data?.detail || err.message,
       };
     }

@@ -49,14 +49,18 @@ def create_api_key(
     user_id: UUID,
     name: str,
     expires_in_days: Optional[int] = None,
+    tier: Optional[str] = "development",
 ) -> Tuple[Dict[str, Any], str]:
     """
-    Create a new API key record.
+    Create a new API key record with configurable tier.
     The complete plaintext key is returned ONCE alongside the persisted metadata.
     """
     plaintext_key, prefix, key_hash = generate_api_key_credentials()
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(days=expires_in_days) if expires_in_days else None
+    assigned_tier = (tier or "development").strip().lower()
+    if assigned_tier not in ("development", "standard", "higher-volume", "higher_volume"):
+        assigned_tier = "development"
 
     if _db_is_available():
         try:
@@ -64,11 +68,11 @@ def create_api_key(
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO api_keys (user_id, name, key_hash, prefix, expires_at, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        RETURNING id, user_id, name, prefix, created_at, last_used_at, revoked_at, expires_at, request_count
+                        INSERT INTO api_keys (user_id, name, key_hash, prefix, tier, expires_at, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id, user_id, name, prefix, tier, created_at, last_used_at, revoked_at, expires_at, request_count
                         """,
-                        (user_id, name, key_hash, prefix, expires_at, now),
+                        (user_id, name, key_hash, prefix, assigned_tier, expires_at, now),
                     )
                     row = cur.fetchone()
                     record = {
@@ -76,11 +80,12 @@ def create_api_key(
                         "user_id": row[1],
                         "name": row[2],
                         "prefix": row[3],
-                        "created_at": row[4],
-                        "last_used_at": row[5],
-                        "revoked_at": row[6],
-                        "expires_at": row[7],
-                        "request_count": row[8],
+                        "tier": row[4] or assigned_tier,
+                        "created_at": row[5],
+                        "last_used_at": row[6],
+                        "revoked_at": row[7],
+                        "expires_at": row[8],
+                        "request_count": row[9],
                         "is_active": True,
                     }
                     return record, plaintext_key
@@ -100,6 +105,7 @@ def create_api_key(
         "name": name,
         "key_hash": key_hash,
         "prefix": prefix,
+        "tier": assigned_tier,
         "created_at": now,
         "last_used_at": None,
         "revoked_at": None,
@@ -123,7 +129,7 @@ def list_keys_for_user(user_id: UUID) -> List[Dict[str, Any]]:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, name, prefix, created_at, last_used_at, revoked_at, expires_at, request_count
+                        SELECT id, user_id, name, prefix, tier, created_at, last_used_at, revoked_at, expires_at, request_count
                         FROM api_keys
                         WHERE user_id = %s
                         ORDER BY created_at DESC
@@ -133,19 +139,20 @@ def list_keys_for_user(user_id: UUID) -> List[Dict[str, Any]]:
                     rows = cur.fetchall()
                     keys = []
                     for row in rows:
-                        revoked_at = row[6]
-                        expires_at = row[7]
+                        revoked_at = row[7]
+                        expires_at = row[8]
                         is_active = (revoked_at is None) and (expires_at is None or expires_at > now)
                         keys.append({
                             "id": row[0],
                             "user_id": row[1],
                             "name": row[2],
                             "prefix": row[3],
-                            "created_at": row[4],
-                            "last_used_at": row[5],
+                            "tier": row[4] or "development",
+                            "created_at": row[5],
+                            "last_used_at": row[6],
                             "revoked_at": revoked_at,
                             "expires_at": expires_at,
-                            "request_count": row[8],
+                            "request_count": row[9],
                             "is_active": is_active,
                         })
                     return keys
@@ -169,6 +176,7 @@ def list_keys_for_user(user_id: UUID) -> List[Dict[str, Any]]:
                 "user_id": k["user_id"],
                 "name": k["name"],
                 "prefix": k["prefix"],
+                "tier": k.get("tier", "development"),
                 "created_at": k["created_at"],
                 "last_used_at": k["last_used_at"],
                 "revoked_at": revoked_at,
@@ -192,7 +200,7 @@ def get_key_by_id(key_id: UUID, user_id: UUID) -> Optional[Dict[str, Any]]:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, name, prefix, created_at, last_used_at, revoked_at, expires_at, request_count
+                        SELECT id, user_id, name, prefix, tier, created_at, last_used_at, revoked_at, expires_at, request_count
                         FROM api_keys
                         WHERE id = %s AND user_id = %s
                         """,
@@ -201,19 +209,20 @@ def get_key_by_id(key_id: UUID, user_id: UUID) -> Optional[Dict[str, Any]]:
                     row = cur.fetchone()
                     if not row:
                         return None
-                    revoked_at = row[6]
-                    expires_at = row[7]
+                    revoked_at = row[7]
+                    expires_at = row[8]
                     is_active = (revoked_at is None) and (expires_at is None or expires_at > now)
                     return {
                         "id": row[0],
                         "user_id": row[1],
                         "name": row[2],
                         "prefix": row[3],
-                        "created_at": row[4],
-                        "last_used_at": row[5],
+                        "tier": row[4] or "development",
+                        "created_at": row[5],
+                        "last_used_at": row[6],
                         "revoked_at": revoked_at,
                         "expires_at": expires_at,
-                        "request_count": row[8],
+                        "request_count": row[9],
                         "is_active": is_active,
                     }
         except Exception as e:
@@ -236,6 +245,7 @@ def get_key_by_id(key_id: UUID, user_id: UUID) -> Optional[Dict[str, Any]]:
         "user_id": record["user_id"],
         "name": record["name"],
         "prefix": record["prefix"],
+        "tier": record.get("tier", "development"),
         "created_at": record["created_at"],
         "last_used_at": record["last_used_at"],
         "revoked_at": revoked_at,
@@ -260,7 +270,7 @@ def revoke_api_key(key_id: UUID, user_id: UUID) -> Optional[Dict[str, Any]]:
                         UPDATE api_keys
                         SET revoked_at = %s
                         WHERE id = %s AND user_id = %s AND revoked_at IS NULL
-                        RETURNING id, user_id, name, prefix, created_at, last_used_at, revoked_at, expires_at, request_count
+                        RETURNING id, user_id, name, prefix, tier, created_at, last_used_at, revoked_at, expires_at, request_count
                         """,
                         (now, key_id, user_id),
                     )
@@ -273,11 +283,12 @@ def revoke_api_key(key_id: UUID, user_id: UUID) -> Optional[Dict[str, Any]]:
                         "user_id": row[1],
                         "name": row[2],
                         "prefix": row[3],
-                        "created_at": row[4],
-                        "last_used_at": row[5],
-                        "revoked_at": row[6],
-                        "expires_at": row[7],
-                        "request_count": row[8],
+                        "tier": row[4] or "development",
+                        "created_at": row[5],
+                        "last_used_at": row[6],
+                        "revoked_at": row[7],
+                        "expires_at": row[8],
+                        "request_count": row[9],
                         "is_active": False,
                     }
         except Exception as e:
@@ -299,6 +310,7 @@ def revoke_api_key(key_id: UUID, user_id: UUID) -> Optional[Dict[str, Any]]:
         "user_id": record["user_id"],
         "name": record["name"],
         "prefix": record["prefix"],
+        "tier": record.get("tier", "development"),
         "created_at": record["created_at"],
         "last_used_at": record["last_used_at"],
         "revoked_at": record["revoked_at"],
@@ -319,7 +331,7 @@ def get_key_by_hash(key_hash: str) -> Optional[Dict[str, Any]]:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, user_id, name, prefix, created_at, last_used_at, revoked_at, expires_at, request_count
+                        SELECT id, user_id, name, prefix, tier, created_at, last_used_at, revoked_at, expires_at, request_count
                         FROM api_keys
                         WHERE key_hash = %s
                         """,
@@ -328,19 +340,20 @@ def get_key_by_hash(key_hash: str) -> Optional[Dict[str, Any]]:
                     row = cur.fetchone()
                     if not row:
                         return None
-                    revoked_at = row[6]
-                    expires_at = row[7]
+                    revoked_at = row[7]
+                    expires_at = row[8]
                     is_active = (revoked_at is None) and (expires_at is None or expires_at > now)
                     return {
                         "id": row[0],
                         "user_id": row[1],
                         "name": row[2],
                         "prefix": row[3],
-                        "created_at": row[4],
-                        "last_used_at": row[5],
+                        "tier": row[4] or "development",
+                        "created_at": row[5],
+                        "last_used_at": row[6],
                         "revoked_at": revoked_at,
                         "expires_at": expires_at,
-                        "request_count": row[8],
+                        "request_count": row[9],
                         "is_active": is_active,
                     }
         except Exception as e:
@@ -362,6 +375,7 @@ def get_key_by_hash(key_hash: str) -> Optional[Dict[str, Any]]:
                 "user_id": record["user_id"],
                 "name": record["name"],
                 "prefix": record["prefix"],
+                "tier": record.get("tier", "development"),
                 "created_at": record["created_at"],
                 "last_used_at": record["last_used_at"],
                 "revoked_at": revoked_at,

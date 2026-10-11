@@ -24,6 +24,11 @@ class CreateApiKeyRequest(BaseModel):
         description="Optional lifetime in days. If omitted, the key will not expire automatically.",
         examples=[30],
     )
+    tier: Optional[str] = Field(
+        "development",
+        description="Service tier determining rate limits and monthly request quotas ('development', 'standard', 'higher-volume').",
+        examples=["development"],
+    )
 
 
 class CreateApiKeyResponse(BaseModel):
@@ -34,6 +39,7 @@ class CreateApiKeyResponse(BaseModel):
     id: UUID
     name: str
     prefix: str
+    tier: str = "development"
     api_key: str = Field(
         ...,
         description="Plaintext API key. Store securely; this value cannot be retrieved again.",
@@ -47,12 +53,15 @@ class ApiKeyMetadataResponse(BaseModel):
     id: UUID
     name: str
     prefix: str
+    tier: str = "development"
     created_at: datetime
     last_used_at: Optional[datetime] = None
     revoked_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
     is_active: bool
     request_count: int
+    rate_limit_rpm: Optional[int] = None
+    monthly_quota_limit: Optional[int] = None
 
 
 class ApiKeyUsageResponse(BaseModel):
@@ -60,12 +69,77 @@ class ApiKeyUsageResponse(BaseModel):
     id: UUID
     name: str
     prefix: str
+    tier: str = "development"
     created_at: datetime
     last_used_at: Optional[datetime] = None
     revoked_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
     is_active: bool
     request_count: int
+
+
+class UsageEventItemResponse(BaseModel):
+    """Telemetry record for an individual authenticated API call."""
+    id: str
+    api_key_id: str
+    key_name: Optional[str] = None
+    key_prefix: Optional[str] = None
+    endpoint: str
+    method: str
+    status_code: int
+    duration_ms: int
+    blocked_reason: Optional[str] = None
+    created_at: str
+
+
+class DailyUsagePoint(BaseModel):
+    """Timestamped request volume for daily charts."""
+    date: str
+    count: int
+
+
+class UsageSummaryResponse(BaseModel):
+    """Aggregate developer usage telemetry across all owned API keys."""
+    total_requests: int
+    requests_today: int
+    requests_this_month: int
+    monthly_quota_limit: int
+    monthly_quota_remaining: int
+    primary_tier: str
+    rate_limit_rpm: int
+    successful_requests: int
+    error_requests: int
+    rate_limited_requests: int
+    quota_exceeded_requests: int
+    requests_by_endpoint: Dict[str, int]
+    recent_activity: list[UsageEventItemResponse]
+    daily_usage: list[DailyUsagePoint]
+
+
+class KeyAnalyticsResponse(BaseModel):
+    """Detailed per-key analytics and rate limit consumption."""
+    key_id: str
+    name: str
+    prefix: str
+    tier: str
+    is_active: bool
+    rate_limit_rpm: int
+    monthly_quota_limit: int
+    monthly_quota_used: int
+    monthly_quota_remaining: int
+    total_requests: int
+    requests_today: int
+    successful_requests: int
+    error_requests: int
+    rate_limited_requests: int
+    recent_activity: list[UsageEventItemResponse]
+    daily_usage: list[DailyUsagePoint]
+
+
+class RetentionCleanupResponse(BaseModel):
+    """Audit result for historical usage event pruning."""
+    deleted_count: int
+    retention_days: int
 
 
 class GeometryMeasurementRequest(BaseModel):

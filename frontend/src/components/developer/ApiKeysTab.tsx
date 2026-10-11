@@ -10,7 +10,7 @@ interface ApiKeysTabProps {
   keys: ApiKeyMetadata[];
   loading: boolean;
   onRefresh: () => void;
-  onCreateKey: (name: string, expiresInDays: number | null) => Promise<CreateApiKeyResponse>;
+  onCreateKey: (name: string, expiresInDays: number | null, tier?: string) => Promise<CreateApiKeyResponse>;
   onRevokeKey: (keyId: string) => Promise<void>;
 }
 
@@ -25,6 +25,7 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [newKeyExpiration, setNewKeyExpiration] = useState<string>('none');
+  const [newKeyTier, setNewKeyTier] = useState<string>('development');
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -57,10 +58,11 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
     setCreateError(null);
     try {
       const expDays = newKeyExpiration === 'none' ? null : parseInt(newKeyExpiration, 10);
-      const res = await onCreateKey(newKeyName.trim(), expDays);
+      const res = await onCreateKey(newKeyName.trim(), expDays, newKeyTier);
       setShowCreateModal(false);
       setNewKeyName('');
       setNewKeyExpiration('none');
+      setNewKeyTier('development');
       setCreatedSecretData(res);
       setCopiedSecret(false);
       onRefresh();
@@ -180,6 +182,7 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
                 <tr className="border-b border-surface-800 bg-surface-950/40 text-surface-400 uppercase text-[10px] tracking-wider">
                   <th className="py-3 px-5 font-semibold">Name</th>
                   <th className="py-3 px-4 font-semibold">Prefix</th>
+                  <th className="py-3 px-4 font-semibold">Tier</th>
                   <th className="py-3 px-4 font-semibold">Status</th>
                   <th className="py-3 px-4 font-semibold">Requests</th>
                   <th className="py-3 px-4 font-semibold">Created</th>
@@ -199,6 +202,14 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
                     <td className="py-3.5 px-4 font-mono text-surface-300 text-[11px]">
                       <span className="px-2 py-0.5 rounded bg-surface-950 border border-surface-800">
                         {k.prefix}...
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 font-mono text-[11px]">
+                      <span className="px-2 py-0.5 rounded bg-surface-950 border border-surface-800 text-surface-300 uppercase text-[10px] font-semibold">
+                        {k.tier || 'development'}
+                      </span>
+                      <span className="text-[10px] text-surface-500 block mt-0.5 font-sans">
+                        {k.rate_limit_rpm || 10} rpm
                       </span>
                     </td>
                     <td className="py-3.5 px-4">
@@ -303,6 +314,24 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
                   <option value="90">90 days</option>
                   <option value="365">1 year (365 days)</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-surface-300 mb-1.5">
+                  Service Tier & Allowance
+                </label>
+                <select
+                  value={newKeyTier}
+                  onChange={(e) => setNewKeyTier(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-950 border border-surface-700/60 text-white text-xs focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+                >
+                  <option value="development">Development — 10 req/min · 1,000 req/month</option>
+                  <option value="standard">Standard — 60 req/min · 25,000 req/month</option>
+                  <option value="higher-volume">Higher-volume — 120 req/min · 100,000 req/month</option>
+                </select>
+                <p className="text-[11px] text-surface-500 mt-1">
+                  Enforces sliding-window rate limiting and monthly request quota.
+                </p>
               </div>
 
               <div className="p-3 rounded-xl bg-surface-950 border border-surface-800 text-[11px] text-surface-400">
@@ -449,6 +478,16 @@ export const ApiKeysTab: React.FC<ApiKeysTabProps> = ({
               <div>
                 <span className="text-surface-500 block text-[11px]">Key ID (UUID)</span>
                 <span className="font-mono text-surface-300 text-[11px] select-all">{inspectedKey.id}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <span className="text-surface-500 block text-[11px]">Tier Plan</span>
+                  <span className="font-semibold text-white capitalize">{inspectedKey.tier || 'development'}</span>
+                </div>
+                <div>
+                  <span className="text-surface-500 block text-[11px]">Rate Limit</span>
+                  <span className="font-mono text-surface-300">{inspectedKey.rate_limit_rpm || 10} req/min</span>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div>

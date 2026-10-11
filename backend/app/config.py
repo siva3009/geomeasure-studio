@@ -30,6 +30,40 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 50
     max_decompressed_size_mb: int = 200
 
+    # Rate Limiting & Usage Quotas (Phase 3)
+    rate_limit_dev_rpm: int = 10
+    rate_limit_dev_monthly: int = 1000
+
+    rate_limit_standard_rpm: int = 60
+    rate_limit_standard_monthly: int = 25000
+
+    rate_limit_higher_rpm: int = 120
+    rate_limit_higher_monthly: int = 100000
+
+    rate_limit_burst_multiplier: float = 1.0
+    usage_event_retention_days: int = 90
+
+    def get_tier_limits(self, tier: str) -> dict:
+        """Return rate limit (rpm) and monthly request quota for a given tier."""
+        normalized = (tier or "development").strip().lower()
+        if normalized in ("standard",):
+            return {
+                "tier": "standard",
+                "rpm": self.rate_limit_standard_rpm,
+                "monthly": self.rate_limit_standard_monthly,
+            }
+        elif normalized in ("higher-volume", "higher_volume", "higher"):
+            return {
+                "tier": "higher-volume",
+                "rpm": self.rate_limit_higher_rpm,
+                "monthly": self.rate_limit_higher_monthly,
+            }
+        return {
+            "tier": "development",
+            "rpm": self.rate_limit_dev_rpm,
+            "monthly": self.rate_limit_dev_monthly,
+        }
+
     @property
     def is_in_memory_allowed(self) -> bool:
         """Allow in-memory storage only in non-production environments when permitted or testing."""

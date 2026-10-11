@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     name TEXT NOT NULL,
     key_hash TEXT NOT NULL UNIQUE,
     prefix TEXT NOT NULL,
+    tier TEXT NOT NULL DEFAULT 'development',
     created_at TIMESTAMPTZ DEFAULT now(),
     last_used_at TIMESTAMPTZ,
     revoked_at TIMESTAMPTZ,
@@ -62,6 +63,21 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+
+CREATE TABLE IF NOT EXISTS api_key_usage_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    api_key_id UUID NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL,
+    method TEXT NOT NULL,
+    status_code INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    blocked_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_events_key_created ON api_key_usage_events(api_key_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_created ON api_key_usage_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_events_endpoint ON api_key_usage_events(endpoint);
 """
 
 

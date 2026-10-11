@@ -4,28 +4,37 @@
    ====================================================== */
 
 import React from 'react';
-import type { ApiKeyMetadata } from '../../types';
+import type { ApiKeyMetadata, UsageSummary } from '../../types';
 
 interface OverviewTabProps {
   keys: ApiKeyMetadata[];
+  usageSummary?: UsageSummary | null;
   loading: boolean;
   onCreateKeyClick: () => void;
   onNavigateToPlayground: () => void;
   onNavigateToDocs: () => void;
+  onNavigateToUsage?: () => void;
 }
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   keys,
+  usageSummary,
   loading,
   onCreateKeyClick,
   onNavigateToPlayground,
   onNavigateToDocs,
+  onNavigateToUsage,
 }) => {
   // Compute real metrics from loaded user keys
   const totalKeys = keys.length;
   const activeKeys = keys.filter((k) => k.is_active).length;
-  const revokedOrExpiredKeys = keys.filter((k) => !k.is_active).length;
-  const totalRequests = keys.reduce((acc, k) => acc + (k.request_count || 0), 0);
+  const totalRequests = usageSummary
+    ? usageSummary.total_requests
+    : keys.reduce((acc, k) => acc + (k.request_count || 0), 0);
+
+  const monthlyUsed = usageSummary?.requests_this_month ?? 0;
+  const monthlyLimit = usageSummary?.monthly_quota_limit ?? 1000;
+  const quotaPercent = Math.min(100, Math.round((monthlyUsed / monthlyLimit) * 100));
 
   const recentKeys = [...keys].sort((a, b) => {
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -67,20 +76,32 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <p className="text-[11px] text-surface-500 mt-1">Authorized for API calls</p>
         </div>
 
-        {/* Inactive / Revoked */}
+        {/* Monthly Quota Consumption */}
         <div className="glass-card p-5 border border-surface-700/40 relative overflow-hidden">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Revoked / Expired</span>
-            <div className="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-              </svg>
-            </div>
+            <span className="text-xs font-semibold text-surface-400 uppercase tracking-wider">Monthly Quota</span>
+            <span className="text-xs font-mono text-white">{quotaPercent}%</span>
           </div>
-          <div className="text-2xl font-bold text-rose-400 tracking-tight">
-            {loading ? <span className="text-surface-600 animate-pulse">...</span> : revokedOrExpiredKeys}
+          <div className="text-2xl font-bold text-white tracking-tight">
+            {loading ? <span className="text-surface-600 animate-pulse">...</span> : monthlyUsed.toLocaleString()}
+            <span className="text-xs font-normal text-surface-500"> / {monthlyLimit.toLocaleString()}</span>
           </div>
-          <p className="text-[11px] text-surface-500 mt-1">Access immediately blocked</p>
+          <div className="w-full h-1.5 rounded-full bg-surface-950 overflow-hidden mt-2">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                quotaPercent >= 90 ? 'bg-rose-500' : quotaPercent >= 75 ? 'bg-amber-400' : 'bg-brand-500'
+              }`}
+              style={{ width: `${quotaPercent}%` }}
+            />
+          </div>
+          {onNavigateToUsage && (
+            <button
+              onClick={onNavigateToUsage}
+              className="text-[11px] text-brand-400 hover:text-brand-300 mt-1 inline-block"
+            >
+              View limits & analytics &rarr;
+            </button>
+          )}
         </div>
 
         {/* Total API Requests */}
@@ -96,7 +117,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <div className="text-2xl font-bold text-indigo-300 tracking-tight">
             {loading ? <span className="text-surface-600 animate-pulse">...</span> : totalRequests.toLocaleString()}
           </div>
-          <p className="text-[11px] text-surface-500 mt-1">Real database usage counter</p>
+          <p className="text-[11px] text-surface-500 mt-1">Real database telemetry</p>
         </div>
       </div>
 

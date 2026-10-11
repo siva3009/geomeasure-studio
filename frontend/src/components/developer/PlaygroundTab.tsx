@@ -461,8 +461,65 @@ export const PlaygroundTab: React.FC<PlaygroundTabProps> = ({ keys }) => {
               </div>
             )}
 
+            {/* Rate Limit & Response Headers Bar */}
+            {result && result.headers && (result.headers.rateLimitLimit || result.headers.retryAfter) && (
+              <div className="p-3 rounded-xl bg-surface-950/80 border border-surface-800 text-xs space-y-2">
+                <span className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider block">
+                  Server Rate Limit Headers
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
+                  {result.headers.rateLimitLimit && (
+                    <div className="p-2 rounded bg-surface-900 border border-surface-800">
+                      <span className="text-[10px] text-surface-500 block">Limit</span>
+                      <span className="text-white font-bold">{result.headers.rateLimitLimit} req/min</span>
+                    </div>
+                  )}
+                  {result.headers.rateLimitRemaining !== undefined && (
+                    <div className="p-2 rounded bg-surface-900 border border-surface-800">
+                      <span className="text-[10px] text-surface-500 block">Remaining</span>
+                      <span className={`font-bold ${Number(result.headers.rateLimitRemaining) === 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {result.headers.rateLimitRemaining}
+                      </span>
+                    </div>
+                  )}
+                  {result.headers.retryAfter && (
+                    <div className="p-2 rounded bg-rose-500/10 border border-rose-500/30">
+                      <span className="text-[10px] text-rose-400 block font-sans">Retry-After</span>
+                      <span className="text-rose-300 font-bold">{result.headers.retryAfter}s</span>
+                    </div>
+                  )}
+                  {result.headers.rateLimitReset && (
+                    <div className="p-2 rounded bg-surface-900 border border-surface-800">
+                      <span className="text-[10px] text-surface-500 block">Reset (Epoch)</span>
+                      <span className="text-surface-300">{result.headers.rateLimitReset}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* HTTP 429 Throttling / Quota Alert */}
+            {result && result.status === 429 && (
+              <div className="p-4 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-rose-300">
+                  <svg className="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span>HTTP 429: Rate Limit or Monthly Quota Throttled</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-rose-200/90">
+                  This request was rejected by the server rate limiter. Check the <code>Retry-After</code> header for the required backoff duration before retrying.
+                </p>
+                {result.headers?.retryAfter && (
+                  <div className="text-[11px] font-mono text-rose-300">
+                    &bull; Retry recommended after: <strong>{result.headers.retryAfter} seconds</strong>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Error Guidance if 401 or 400 */}
-            {result && result.status !== 200 && (
+            {result && result.status !== 200 && result.status !== 429 && (
               <div className="p-3 rounded-xl bg-surface-950 border border-surface-800 text-xs space-y-1">
                 <span className="font-semibold text-rose-300">Troubleshooting Guidance:</span>
                 <p className="text-[11px] text-surface-400">

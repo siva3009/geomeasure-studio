@@ -6,17 +6,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/useAuth';
 
-import { listApiKeys, createApiKey, revokeApiKey } from '../../api/client';
-import type { ApiKeyMetadata, CreateApiKeyResponse } from '../../types';
+import type { ApiKeyMetadata, CreateApiKeyResponse, UsageSummary } from '../../types';
+import { listApiKeys, createApiKey, revokeApiKey, getUsageSummary } from '../../api/client';
 import { OverviewTab } from './OverviewTab';
 import { ApiKeysTab } from './ApiKeysTab';
+import { UsageTab } from './UsageTab';
 import { PlaygroundTab } from './PlaygroundTab';
 import { DocsTab } from './DocsTab';
 import { AuthModal } from './AuthModal';
 
 export const DeveloperPortal: React.FC = () => {
   const { user, loading: authLoading, isConfigured, getAccessToken, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'keys' | 'playground' | 'docs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'keys' | 'usage' | 'playground' | 'docs'>('overview');
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   // API keys state
@@ -24,38 +25,52 @@ export const DeveloperPortal: React.FC = () => {
   const [keysLoading, setKeysLoading] = useState(false);
   const [keysError, setKeysError] = useState<string | null>(null);
 
-  // Fetch keys whenever user is authenticated
-  const loadKeys = useCallback(async () => {
+  // Usage summary state
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+
+  // Fetch keys and usage summary whenever user is authenticated
+  const loadData = useCallback(async () => {
     if (!user) {
       setKeys([]);
+      setUsageSummary(null);
       return;
     }
     setKeysLoading(true);
+    setUsageLoading(true);
     setKeysError(null);
     try {
       const token = await getAccessToken();
       if (!token) {
         throw new Error('No active authentication token found.');
       }
-      const data = await listApiKeys(token);
-      setKeys(data);
+      const [keysData, usageData] = await Promise.all([
+        listApiKeys(token),
+        getUsageSummary(token).catch((err) => {
+          console.warn('Failed to fetch usage summary:', err);
+          return null;
+        }),
+      ]);
+      setKeys(keysData);
+      if (usageData) setUsageSummary(usageData);
     } catch (err: unknown) {
-      console.error('Failed to load API keys:', err);
-      setKeysError(err instanceof Error ? err.message : 'Failed to fetch API keys.');
+      console.error('Failed to load developer data:', err);
+      setKeysError(err instanceof Error ? err.message : 'Failed to fetch developer data.');
     } finally {
       setKeysLoading(false);
+      setUsageLoading(false);
     }
   }, [user, getAccessToken]);
 
   useEffect(() => {
-    loadKeys();
-  }, [loadKeys]);
+    loadData();
+  }, [loadData]);
 
-  const handleCreateKey = async (name: string, expiresInDays: number | null): Promise<CreateApiKeyResponse> => {
+  const handleCreateKey = async (name: string, expiresInDays: number | null, tier?: string): Promise<CreateApiKeyResponse> => {
     const token = await getAccessToken();
     if (!token) throw new Error('Authentication required.');
-    const res = await createApiKey({ name, expires_in_days: expiresInDays }, token);
-    await loadKeys();
+    const res = await createApiKey({ name, expires_in_days: expiresInDays, tier }, token);
+    await loadData();
     return res;
   };
 
@@ -63,7 +78,7 @@ export const DeveloperPortal: React.FC = () => {
     const token = await getAccessToken();
     if (!token) throw new Error('Authentication required.');
     await revokeApiKey(keyId, token);
-    await loadKeys();
+    await loadData();
   };
 
   return (
@@ -90,6 +105,16 @@ export const DeveloperPortal: React.FC = () => {
             }`}
           >
             API Credentials
+          </button>
+          <button
+            onClick={() => setActiveTab('usage')}
+            className={`py-2 px-3.5 rounded-lg text-xs font-medium transition-all ${
+              activeTab === 'usage'
+                ? 'bg-brand-600 text-white shadow-sm shadow-brand-600/30 font-semibold'
+                : 'text-surface-400 hover:text-surface-200'
+            }`}
+          >
+            Usage & Limits
           </button>
           <button
             onClick={() => setActiveTab('playground')}
@@ -155,12 +180,12 @@ export const DeveloperPortal: React.FC = () => {
             </svg>
             <span>{keysError}</span>
           </div>
-          <button onClick={loadKeys} className="underline text-rose-300 font-medium">Retry</button>
+          <button onClick={loadData} className="underline text-rose-300 font-medium">Retry</button>
         </div>
       )}
 
-      {/* If user is not authenticated and is on Overview or Keys, show the Authenticated Prompt Card */}
-      {!user && (activeTab === 'overview' || activeTab === 'keys') ? (
+      {/* If user is not authenticated and is on Overview, Keys, or Usage, show the Authenticated Prompt Card */}
+      {!user && (activeTab === 'overview' || activeTab === 'keys' || activeTab === 'usage') ? (
         <div className="glass-card p-10 border border-surface-700/50 text-center max-w-xl mx-auto space-y-4 my-8">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-500 to-indigo-600 mx-auto flex items-center justify-center text-white shadow-xl shadow-brand-500/30">
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -198,21 +223,31 @@ export const DeveloperPortal: React.FC = () => {
       ) : activeTab === 'overview' ? (
         <OverviewTab
           keys={keys}
-          loading={keysLoading}
+          usageSummary={usageSummary}
+          loading={keysLoading || usageLoading}
           onCreateKeyClick={() => {
             if (!user) setShowAuthModal(true);
             else setActiveTab('keys');
           }}
           onNavigateToPlayground={() => setActiveTab('playground')}
           onNavigateToDocs={() => setActiveTab('docs')}
+          onNavigateToUsage={() => setActiveTab('usage')}
         />
       ) : activeTab === 'keys' ? (
         <ApiKeysTab
           keys={keys}
           loading={keysLoading}
-          onRefresh={loadKeys}
+          onRefresh={loadData}
           onCreateKey={handleCreateKey}
           onRevokeKey={handleRevokeKey}
+        />
+      ) : activeTab === 'usage' ? (
+        <UsageTab
+          summary={usageSummary}
+          keys={keys}
+          loading={usageLoading}
+          onRefresh={loadData}
+          onNavigateToPlayground={() => setActiveTab('playground')}
         />
       ) : activeTab === 'playground' ? (
         <PlaygroundTab keys={keys} />
@@ -225,7 +260,7 @@ export const DeveloperPortal: React.FC = () => {
         isOpen={showAuthModal}
         onClose={() => {
           setShowAuthModal(false);
-          loadKeys();
+          loadData();
         }}
       />
     </div>

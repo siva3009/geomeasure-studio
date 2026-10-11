@@ -78,6 +78,7 @@ class ApiKeyIdentity:
     prefix: str
     created_at: datetime
     request_count: int
+    tier: str = "development"
 
 
 def get_jwt_secret() -> str:
@@ -281,4 +282,5 @@ async def get_api_key_auth(
         prefix=record["prefix"],
         created_at=record["created_at"],
         request_count=record.get("request_count", 0) + 1,
+        tier=record.get("tier", "development"),
     )
