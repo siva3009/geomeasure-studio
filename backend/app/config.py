@@ -4,6 +4,7 @@ Application configuration loaded from environment variables.
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -112,7 +113,7 @@ class Settings(BaseSettings):
         return self.max_decompressed_size_mb * 1024 * 1024
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(str(Path(__file__).resolve().parent.parent / ".env"), ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
