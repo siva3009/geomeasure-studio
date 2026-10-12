@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     request_count BIGINT NOT NULL DEFAULT 0
 );
 
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'development';
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
 
