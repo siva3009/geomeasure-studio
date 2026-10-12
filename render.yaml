@@ -24,4 +24,10 @@ services:
         value: "50"
       - key: MAX_DECOMPRESSED_SIZE_MB
         value: "200"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: "openai/gpt-oss-20b"
+      - key: GROQ_BASE_URL
+        value: "https://api.groq.com/openai/v1"
 
