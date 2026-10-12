@@ -4,7 +4,7 @@ Pydantic schemas for GeoMeasure Studio AI Copilot.
 
 from typing import List, Dict, Any, Optional
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class AIAssistantRequest(BaseModel):
@@ -20,6 +20,10 @@ class AIAssistantRequest(BaseModel):
         None,
         description="UUID of the uploaded dataset to analyze. If omitted, ad-hoc geometry may be provided."
     )
+    dataset_id: Optional[UUID] = Field(
+        None,
+        description="Alias for file_id for API compatibility."
+    )
     geometry_payload: Optional[Dict[str, Any]] = Field(
         None,
         description="Optional bounded GeoJSON geometry/feature collection for ad-hoc analysis."
@@ -28,6 +32,13 @@ class AIAssistantRequest(BaseModel):
         None,
         description="Optional privacy override: 'standard' or 'local_only'."
     )
+
+    @model_validator(mode="before")
+    def resolve_file_id(cls, values: Any) -> Any:
+        if isinstance(values, dict):
+            if "dataset_id" in values and "file_id" not in values:
+                values["file_id"] = values["dataset_id"]
+        return values
 
 
 class GISFeatureItem(BaseModel):

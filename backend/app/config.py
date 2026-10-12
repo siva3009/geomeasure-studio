@@ -67,7 +67,7 @@ class Settings(BaseSettings):
         if self.environment == "production":
             is_local = any(h in self.ollama_base_url.lower() for h in ("localhost", "127.0.0.1", "0.0.0.0", "::1"))
             if is_local:
-                return "hosted_only" if self.ai_provider_mode == "hosted_only" else "hosted_first"
+                return "hosted_only"
         return self.ai_provider_mode
 
     def get_tier_limits(self, tier: str) -> dict:
