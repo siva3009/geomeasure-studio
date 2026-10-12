@@ -175,9 +175,15 @@ class OllamaProvider(BaseAIProvider):
             if "tool_calls" in message:
                 for tc in message["tool_calls"]:
                     fn = tc.get("function") or {}
+                    args_val = fn.get("arguments") or {}
+                    if isinstance(args_val, str):
+                        try:
+                            args_val = json.loads(args_val)
+                        except (json.JSONDecodeError, TypeError):
+                            args_val = {}
                     tool_calls.append({
                         "name": fn.get("name"),
-                        "arguments": fn.get("arguments") or {}
+                        "arguments": args_val
                     })
 
             p_tokens = data.get("prompt_eval_count")
@@ -310,7 +316,10 @@ class GroqHostedProvider(BaseAIProvider):
                 for tc in message["tool_calls"]:
                     fn = tc.get("function") or {}
                     args_raw = fn.get("arguments") or "{}"
-                    args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+                    try:
+                        args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
                     tool_calls.append({
                         "name": fn.get("name"),
                         "arguments": args

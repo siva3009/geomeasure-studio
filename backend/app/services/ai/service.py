@@ -235,7 +235,11 @@ class AICopilotService:
 
                 elif fn_name == "measure_features":
                     rank_by = args.get("rank_by", "area")
-                    limit = min(50, max(1, int(args.get("limit", 5))))
+                    limit_raw = args.get("limit")
+                    try:
+                        limit = min(50, max(1, int(limit_raw))) if limit_raw is not None else 5
+                    except (ValueError, TypeError):
+                        limit = 5
                     meas_res = tool_measure_features(measurements, rank_by=rank_by, limit=limit)
                     top_features.extend(meas_res.get("top_features", []))
                     highlighted_indices.extend(meas_res.get("highlighted_indices", []))
