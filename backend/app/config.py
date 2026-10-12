@@ -20,11 +20,11 @@ class Settings(BaseSettings):
     allow_in_memory_db: bool = False
 
     # CORS
-    allowed_origins: str = "http://localhost:5173"
+    allowed_origins: str = "http://localhost:5173,https://geomeasure-studio.vercel.app"
 
     # Supabase Auth
     supabase_jwt_secret: str = ""
-    supabase_url: str = ""
+    supabase_url: str = "https://egvoacfdtynoafsqlmol.supabase.co"
 
     # Upload limits
     max_upload_size_mb: int = 50
