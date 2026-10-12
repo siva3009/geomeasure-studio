@@ -231,8 +231,15 @@ def get_file_by_id(file_id: UUID) -> Optional[Dict[str, Any]]:
             _trigger_db_breaker(e)
     elif not settings.is_in_memory_allowed:
         raise DatabaseError("Database is currently unavailable and in-memory storage is disallowed.")
-
-    return _IN_MEMORY_FILES.get(file_id)
+    res = _IN_MEMORY_FILES.get(file_id)
+    if not res and isinstance(file_id, str):
+        try:
+            res = _IN_MEMORY_FILES.get(UUID(file_id))
+        except Exception:
+            pass
+    if not res and isinstance(file_id, UUID):
+        res = _IN_MEMORY_FILES.get(str(file_id))
+    return res
 
 
 def get_all_files() -> List[Dict[str, Any]]:
@@ -256,7 +263,7 @@ def get_all_files() -> List[Dict[str, Any]]:
         raise DatabaseError("Database is currently unavailable and in-memory storage is disallowed.")
 
     files = list(_IN_MEMORY_FILES.values())
-    files.sort(key=lambda x: x.get("created_at") or datetime.min, reverse=True)
+    files.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
     return files
 
 
@@ -288,7 +295,15 @@ def get_measurements_by_file_id(file_id: UUID) -> List[Dict[str, Any]]:
     elif not settings.is_in_memory_allowed:
         raise DatabaseError("Database is currently unavailable and in-memory storage is disallowed.")
 
-    return _IN_MEMORY_MEASUREMENTS.get(file_id, [])
+    res = _IN_MEMORY_MEASUREMENTS.get(file_id)
+    if res is None and isinstance(file_id, str):
+        try:
+            res = _IN_MEMORY_MEASUREMENTS.get(UUID(file_id))
+        except Exception:
+            pass
+    if res is None and isinstance(file_id, UUID):
+        res = _IN_MEMORY_MEASUREMENTS.get(str(file_id))
+    return res or []
 
 
 def delete_file_by_id(file_id: UUID) -> bool:

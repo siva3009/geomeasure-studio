@@ -46,6 +46,11 @@ A production-grade geospatial file measurement platform. Upload **KML** and **zi
   - [Overview Dashboard](#overview-dashboard)
   - [API Key Management Lifecycle](#api-key-management-lifecycle)
   - [Interactive API Playground](#interactive-api-playground)
+- [v2 Phase 4: AI Copilot with Low-Latency Hybrid Inference](#v2-phase-4-ai-copilot-with-low-latency-hybrid-inference)
+  - [Hybrid Inference Architecture](#hybrid-inference-architecture)
+  - [Deterministic Fast Path (< 10ms)](#deterministic-fast-path--10ms)
+  - [Approved GIS Tool Registry](#approved-gis-tool-registry)
+  - [Local Ollama & Hosted Groq Setup](#local-ollama--hosted-groq-setup)
 - [API Reference](#api-reference)
 - [Measurement Units & Output Standards](#measurement-units--output-standards)
 
@@ -626,6 +631,30 @@ GeoMeasure Studio v2 Phase 2 introduces a dedicated developer portal at `/develo
 
 ---
 
+## v2 Phase 4: AI Copilot with Low-Latency Hybrid Inference
+
+GeoMeasure Studio v2 Phase 4 transforms the platform into an AI-powered geospatial intelligence workspace, pairing a high-speed deterministic intent router with hybrid local and cloud LLM execution.
+
+### Hybrid Inference Architecture
+- **Deterministic Fast Path (< 10ms)**: Common GIS requests (parcel area ranking, geometry topology validation, CRS explanations, summary counts, and export formatting) execute in under 5ms via rule matching, completely bypassing the LLM.
+- **Provider Gateway**: Modular abstraction supporting **Local Ollama** (`qwen3.5:2b`), **Hosted Groq** (`openai/gpt-oss-20b`), and OpenAI-compatible endpoints with bounded timeouts and connection pooling.
+- **Configurable Routing**: `local_first`, `hosted_first`, `local_only`, and `hosted_only` routing policies.
+- **Strict Production Safety**: Hosted production (Render) automatically disables attempts to connect to visitor `localhost`. Missing AI providers do not disrupt existing file or measurement endpoints.
+- **Local-Only Privacy Mode**: `AI_PRIVACY_MODE=local_only` strictly forbids cloud transmission of dataset context.
+
+### Approved GIS Tool Registry
+The Copilot operates strictly through an explicit tool allowlist:
+1. `inspect_dataset`: Extracts feature counts, geometry types, bounding box, and CRS metadata.
+2. `measure_features`: Computes metric areas and lengths, sorts features, and ranks top-N parcels.
+3. `validate_geometries`: Checks topology (self-intersections, unclosed rings) and detects pairwise polygon overlaps.
+4. `export_results`: Exports validated GeoJSON or CSV without mutating source datasets.
+
+### Local Ollama & Hosted Groq Setup
+- See [`docs/AI_COPILOT.md`](docs/AI_COPILOT.md) for full setup instructions, model links, and benchmark tables.
+- Helper script: `python scripts/setup_ollama.py --check-only` (or `--pull` to download `qwen3.5:2b`).
+
+---
+
 ## API Reference
 
 
@@ -651,6 +680,14 @@ GeoMeasure Studio v2 Phase 2 introduces a dedicated developer portal at `/develo
 | `GET` | `/api/keys/{id}/` | Get non-sensitive key metadata | **Bearer JWT (User)** |
 | `DELETE` | `/api/keys/{id}/` | Revoke an API key immediately | **Bearer JWT (User)** |
 | `GET` | `/api/keys/{id}/usage/` | Get usage count and last-used timestamp | **Bearer JWT (User)** |
+
+### AI Assistant Endpoints (v2 Phase 4)
+
+| Method | Endpoint | Description | Auth Required |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/assistant/status` | Provider availability & model metadata | Public |
+| `POST` | `/api/assistant/analyze` | Web workspace natural language GIS copilot | **Bearer JWT (User)** |
+| `POST` | `/api/v1/assistant/analyze` | External API natural language GIS copilot | **`X-API-Key` Required** |
 
 ---
 

@@ -22,6 +22,7 @@ L.Icon.Default.mergeOptions({
 
 interface MapViewProps {
   geojson: FeatureCollection | null;
+  highlightedIndices?: number[];
 }
 
 /** Check if geometry has valid displayable coordinates */
@@ -78,8 +79,22 @@ function FitBounds({ geojson }: { geojson: FeatureCollection | null }) {
   return null;
 }
 
-/** Style features by geometry type */
-function featureStyle(feature: GeoJSON.Feature | undefined) {
+/** Style features by geometry type and highlight state */
+function featureStyle(feature: GeoJSON.Feature | undefined, highlightedIndices: number[] = []) {
+  const featIndex = feature?.properties?._feature_index;
+  const isHighlighted = typeof featIndex === 'number' && highlightedIndices.includes(featIndex);
+
+  if (isHighlighted) {
+    return {
+      fillColor: '#f59e0b',
+      fillOpacity: 0.55,
+      color: '#fbbf24',
+      weight: 3.5,
+      opacity: 1,
+      dashArray: '4, 4',
+    };
+  }
+
   const type = feature?.geometry?.type;
   switch (type) {
     case 'Polygon':
@@ -118,14 +133,17 @@ function featureStyle(feature: GeoJSON.Feature | undefined) {
 }
 
 /** Render Point / MultiPoint features with consistent styling */
-function pointToLayer(_feature: GeoJSON.Feature, latlng: L.LatLng): L.Layer {
+function pointToLayer(feature: GeoJSON.Feature, latlng: L.LatLng, highlightedIndices: number[] = []): L.Layer {
+  const featIndex = feature?.properties?._feature_index;
+  const isHighlighted = typeof featIndex === 'number' && highlightedIndices.includes(featIndex);
+
   return L.circleMarker(latlng, {
-    radius: 7,
-    fillColor: '#6366f1',
-    color: '#a5b4fc',
-    weight: 2,
-    opacity: 0.9,
-    fillOpacity: 0.75,
+    radius: isHighlighted ? 10 : 7,
+    fillColor: isHighlighted ? '#f59e0b' : '#6366f1',
+    color: isHighlighted ? '#fbbf24' : '#a5b4fc',
+    weight: isHighlighted ? 3 : 2,
+    opacity: 1,
+    fillOpacity: isHighlighted ? 0.9 : 0.75,
   });
 }
 
@@ -188,7 +206,7 @@ function onEachFeature(feature: GeoJSON.Feature, layer: L.Layer) {
   }
 }
 
-export default function MapView({ geojson }: MapViewProps) {
+export default function MapView({ geojson, highlightedIndices = [] }: MapViewProps) {
   const geoJsonRef = useRef<L.GeoJSON | null>(null);
 
   // Initial state: no file uploaded yet
@@ -245,6 +263,14 @@ export default function MapView({ geojson }: MapViewProps) {
     );
   }
 
+  const annotatedGeojson: FeatureCollection = {
+    ...geojson,
+    features: geojson.features.map((f, idx) => ({
+      ...f,
+      properties: { ...(f.properties || {}), _feature_index: idx },
+    })),
+  };
+
   return (
     <div
       className="h-[400px] rounded-2xl overflow-hidden border border-surface-700/50 animate-fade-in"
@@ -261,10 +287,10 @@ export default function MapView({ geojson }: MapViewProps) {
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <GeoJSON
-          key={JSON.stringify(geojson).slice(0, 100)}
-          data={geojson}
-          style={featureStyle}
-          pointToLayer={pointToLayer}
+          key={`${JSON.stringify(geojson).slice(0, 80)}_${highlightedIndices.join(',')}`}
+          data={annotatedGeojson}
+          style={(feature) => featureStyle(feature, highlightedIndices)}
+          pointToLayer={(feature, latlng) => pointToLayer(feature, latlng, highlightedIndices)}
           onEachFeature={onEachFeature}
           ref={geoJsonRef}
         />
