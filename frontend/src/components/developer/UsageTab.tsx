@@ -197,6 +197,81 @@ export const UsageTab: React.FC<UsageTabProps> = ({
         </div>
       </div>
 
+      {/* AI Copilot & Hybrid Inference Telemetry (Phase 4) */}
+      <div className="glass-card p-5 border border-surface-800 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2L14.4 9.6L22 12L14.4 14.4L12 22L9.6 14.4L2 12L9.6 9.6L12 2Z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">AI Copilot & Hybrid Inference Telemetry</h3>
+              <p className="text-xs text-surface-400">Natural language GIS analysis requests, quotas, and verified latency</p>
+            </div>
+          </div>
+          <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono text-[10px] uppercase font-semibold">
+            v2 Phase 4
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* AI Calls */}
+          <div className="p-3.5 rounded-xl bg-surface-950/60 border border-surface-800/80 space-y-1">
+            <span className="text-[11px] text-surface-400 block">AI Requests Executed</span>
+            <div className="text-lg font-bold font-mono text-white">
+              {(summary?.ai_usage?.total_requests ?? 0).toLocaleString()}
+            </div>
+            <p className="text-[10px] text-emerald-400">
+              {(summary?.ai_usage?.successful_requests ?? 0).toLocaleString()} completed
+            </p>
+          </div>
+
+          {/* AI Monthly Quota */}
+          <div className="p-3.5 rounded-xl bg-surface-950/60 border border-surface-800/80 space-y-1">
+            <span className="text-[11px] text-surface-400 block">AI Monthly Quota</span>
+            <div className="text-lg font-bold font-mono text-white">
+              {(summary?.ai_usage?.total_requests ?? 0).toLocaleString()}
+              <span className="text-xs text-surface-500 font-normal"> / {(summary?.ai_usage?.monthly_quota_limit ?? 500).toLocaleString()}</span>
+            </div>
+            <p className="text-[10px] text-surface-400">
+              Rate limit: {summary?.ai_usage?.rate_limit_rpm ?? 15} rpm
+            </p>
+          </div>
+
+          {/* AI Average Latency */}
+          <div className="p-3.5 rounded-xl bg-surface-950/60 border border-surface-800/80 space-y-1">
+            <span className="text-[11px] text-surface-400 block">Avg Response Latency</span>
+            <div className="text-lg font-bold font-mono text-cyan-400">
+              {(summary?.ai_usage?.avg_duration_ms ?? 0) > 0 ? `${summary?.ai_usage?.avg_duration_ms} ms` : '—'}
+            </div>
+            <p className="text-[10px] text-surface-400">
+              Fast-path &lt;50ms GIS engine
+            </p>
+          </div>
+
+          {/* AI Blocked / Rate Limited */}
+          <div className="p-3.5 rounded-xl bg-surface-950/60 border border-surface-800/80 space-y-1">
+            <span className="text-[11px] text-surface-400 block">AI Rate Limits & Quotas</span>
+            <div className="text-lg font-bold font-mono text-amber-400">
+              {(summary?.ai_usage?.rate_limited_requests ?? 0) + (summary?.ai_usage?.quota_exceeded_requests ?? 0)}
+            </div>
+            <p className="text-[10px] text-surface-500">
+              429 Throttled calls
+            </p>
+          </div>
+        </div>
+
+        <div className="px-3.5 py-2.5 rounded-xl bg-surface-900/40 border border-surface-800/60 flex items-center justify-between text-[11px] text-surface-400">
+          <div className="flex items-center space-x-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span>Usage reporting distinguishes provider-verified metrics from estimates. Token counts are never fabricated.</span>
+          </div>
+          <span className="text-surface-500 font-mono text-[10px]">Strict Bounds</span>
+        </div>
+      </div>
+
       {/* Daily Usage Chart (SVG) */}
       <div className="glass-card p-5 border border-surface-800 space-y-4">
         <div className="flex items-center justify-between">

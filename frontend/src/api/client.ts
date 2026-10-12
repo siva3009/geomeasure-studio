@@ -210,4 +210,41 @@ export async function testMeasurementPlayground(
   }
 }
 
+/* ======================================================
+   v2 Phase 4: AI Copilot API Methods
+   ====================================================== */
+
+import type { AIAssistantStatus, AIAssistantResponse } from '../types';
+
+/** Get AI assistant readiness status */
+export async function getAssistantStatus(): Promise<AIAssistantStatus> {
+  const { data } = await api.get<AIAssistantStatus>('/api/assistant/status');
+  return data;
+}
+
+/** Analyze dataset with AI Copilot (web workspace) */
+export async function analyzeWithCopilot(
+  task: string,
+  fileId?: string,
+  geometryPayload?: Record<string, unknown>,
+  privacyMode?: 'standard' | 'local_only',
+  token?: string
+): Promise<AIAssistantResponse> {
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const { data } = await api.post<AIAssistantResponse>(
+    '/api/assistant/analyze',
+    {
+      task,
+      file_id: fileId,
+      geometry_payload: geometryPayload,
+      privacy_mode: privacyMode,
+    },
+    { headers }
+  );
+  return data;
+}
+
 

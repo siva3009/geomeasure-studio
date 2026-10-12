@@ -114,6 +114,7 @@ class UsageSummaryResponse(BaseModel):
     requests_by_endpoint: Dict[str, int]
     recent_activity: list[UsageEventItemResponse]
     daily_usage: list[DailyUsagePoint]
+    ai_usage: Optional[Dict[str, Any]] = None
 
 
 class KeyAnalyticsResponse(BaseModel):

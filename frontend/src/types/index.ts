@@ -166,6 +166,7 @@ export interface UsageSummary {
   requests_by_endpoint: Record<string, number>;
   recent_activity: UsageEventItem[];
   daily_usage: DailyUsagePoint[];
+  ai_usage?: AIUsageMetrics;
 }
 
 export interface KeyAnalytics {
@@ -185,5 +186,88 @@ export interface KeyAnalytics {
   rate_limited_requests: number;
   recent_activity: UsageEventItem[];
   daily_usage: DailyUsagePoint[];
+}
+
+/* ======================================================
+   v2 Phase 4: AI Copilot & Hybrid Inference Types
+   ====================================================== */
+
+export interface GISFeatureItem {
+  feature_index: number;
+  feature_id: string | null;
+  geometry_type: string;
+  area_sq_meters: number | null;
+  area_hectares: number | null;
+  length_meters: number | null;
+  measurement_crs: string | null;
+  is_valid: boolean;
+  validity_reason?: string | null;
+}
+
+export interface ExportArtifact {
+  format: string;
+  filename: string;
+  record_count: number;
+  download_url?: string;
+  content_preview?: string;
+}
+
+export interface ProviderMetadata {
+  provider: string;
+  model: string;
+  is_local: boolean;
+  latency_ms: number;
+  time_to_first_token_ms?: number | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  token_usage_estimated?: boolean;
+  routed_via?: string;
+}
+
+export interface LatencyBreakdown {
+  total_ms: number;
+  intent_ms: number;
+  provider_ms: number;
+  tool_execution_ms: number;
+}
+
+export interface AIAssistantResponse {
+  status: string;
+  task?: string;
+  explanation: string;
+  intent: string;
+  actions_executed: string[];
+  feature_summary?: Record<string, unknown> | null;
+  top_features?: GISFeatureItem[] | null;
+  highlighted_indices: number[];
+  validation_warnings: string[];
+  export_artifact?: ExportArtifact | null;
+  provider_metadata: ProviderMetadata;
+  latency_breakdown: LatencyBreakdown;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+}
+
+export interface AIAssistantStatus {
+  status: string;
+  provider_mode: string;
+  privacy_mode: string;
+  ollama_model: string;
+  groq_model: string;
+  ai_rate_limit_rpm: number;
+  ai_monthly_quota: number;
+  details?: Record<string, unknown>;
+}
+
+export interface AIUsageMetrics {
+  total_requests: number;
+  successful_requests: number;
+  rate_limited_requests: number;
+  quota_exceeded_requests: number;
+  avg_duration_ms: number;
+  monthly_quota_limit: number;
+  rate_limit_rpm: number;
 }
 

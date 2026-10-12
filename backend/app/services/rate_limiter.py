@@ -66,6 +66,8 @@ def check_and_consume_rate_limit(
     endpoint: str = "/api/v1/measurements/",
     method: str = "POST",
     test_now: Optional[datetime] = None,
+    custom_rpm_limit: Optional[int] = None,
+    custom_monthly_quota: Optional[int] = None,
 ) -> RateLimitCheckResult:
     """
     Atomically verify rate limit (per minute) and monthly quota for an API key.
@@ -84,6 +86,11 @@ def check_and_consume_rate_limit(
     monthly_quota = tier_limits["monthly"]
     burst_multiplier = getattr(settings, "rate_limit_burst_multiplier", 1.0)
     effective_rpm = int(rpm_limit * burst_multiplier)
+
+    if custom_rpm_limit is not None:
+        effective_rpm = min(effective_rpm, custom_rpm_limit)
+    if custom_monthly_quota is not None:
+        monthly_quota = min(monthly_quota, custom_monthly_quota)
 
     month_start = _get_month_start_utc(now)
     minute_start = now - timedelta(seconds=60)
@@ -117,6 +124,10 @@ def check_and_consume_rate_limit(
                         rpm_limit = tier_limits["rpm"]
                         monthly_quota = tier_limits["monthly"]
                         effective_rpm = int(rpm_limit * burst_multiplier)
+                        if custom_rpm_limit is not None:
+                            effective_rpm = min(effective_rpm, custom_rpm_limit)
+                        if custom_monthly_quota is not None:
+                            monthly_quota = min(monthly_quota, custom_monthly_quota)
 
                     # A. Check Monthly Quota (Count successful/permitted requests this calendar month)
                     cur.execute(
@@ -574,6 +585,24 @@ def get_user_usage_summary(
 
     remaining_allowance = max(0, monthly_quota_limit - requests_this_month)
 
+    # Phase 4: AI Telemetry Breakdown
+    ai_events = [e for e in events if "assistant" in e.get("endpoint", "")]
+    ai_requests = len(ai_events)
+    ai_successful = sum(1 for e in ai_events if e["status_code"] < 400)
+    ai_rate_limited = sum(1 for e in ai_events if e.get("blocked_reason") == "rate_limit")
+    ai_quota_exceeded = sum(1 for e in ai_events if e.get("blocked_reason") == "quota")
+    ai_avg_duration = round(sum(e["duration_ms"] for e in ai_events) / max(1, ai_requests), 1) if ai_requests else 0.0
+
+    ai_usage = {
+        "total_requests": ai_requests,
+        "successful_requests": ai_successful,
+        "rate_limited_requests": ai_rate_limited,
+        "quota_exceeded_requests": ai_quota_exceeded,
+        "avg_duration_ms": ai_avg_duration,
+        "monthly_quota_limit": settings.ai_monthly_quota,
+        "rate_limit_rpm": settings.ai_rate_limit_rpm,
+    }
+
     return {
         "total_requests": total_requests,
         "requests_today": requests_today,
@@ -589,6 +618,7 @@ def get_user_usage_summary(
         "requests_by_endpoint": requests_by_endpoint,
         "recent_activity": recent_activity,
         "daily_usage": daily_usage,
+        "ai_usage": ai_usage,
     }
 
 

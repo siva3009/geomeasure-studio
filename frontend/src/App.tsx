@@ -10,6 +10,7 @@ import MeasurementTable from './components/MeasurementTable';
 import MapView from './components/MapView';
 import ExportButtons from './components/ExportButtons';
 import DiagnosticsPanel from './components/DiagnosticsPanel';
+import AICopilot from './components/copilot/AICopilot';
 import { DeveloperPortal } from './components/developer/DeveloperPortal';
 import { AuthProvider } from './context/AuthContext';
 import { listFiles, getFile, getMeasurements, deleteFile } from './api/client';
@@ -24,6 +25,10 @@ function MainLayout() {
     }
     return 'workspace';
   });
+
+  // Workspace sub-tabs ('copilot' | 'measurements')
+  const [workspaceTab, setWorkspaceTab] = useState<'copilot' | 'measurements'>('copilot');
+  const [highlightedIndices, setHighlightedIndices] = useState<number[]>([]);
 
   // Sync with browser URL history
   useEffect(() => {
@@ -223,34 +228,90 @@ function MainLayout() {
                         ? (selectedFile.geojson as unknown as FeatureCollection)
                         : null
                     }
+                    highlightedIndices={highlightedIndices}
                   />
                 </div>
 
-                {/* Measurements table */}
-                {detailLoading ? (
-                  <div className="glass-card p-8">
-                    <div className="flex items-center justify-center gap-3">
-                      <div className="w-5 h-5 border-2 border-brand-400 border-t-transparent rounded-full animate-spin" />
-                      <span className="text-surface-400">Loading measurements...</span>
-                    </div>
+                {/* Sub-Tabs: AI Copilot & Measurements */}
+                <div className="flex items-center justify-between border-b border-surface-800 pb-2">
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setWorkspaceTab('copilot')}
+                      className={`text-xs font-medium py-1.5 px-3.5 rounded-lg transition-all flex items-center space-x-2 ${
+                        workspaceTab === 'copilot'
+                          ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold shadow-sm'
+                          : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/40'
+                      }`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>AI Copilot (Phase 4)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWorkspaceTab('measurements')}
+                      className={`text-xs font-medium py-1.5 px-3.5 rounded-lg transition-all flex items-center space-x-2 ${
+                        workspaceTab === 'measurements'
+                          ? 'bg-surface-800 border border-surface-700 text-surface-100 font-semibold shadow-sm'
+                          : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/40'
+                      }`}
+                    >
+                      <span>Measurements Table</span>
+                      {measurements.length > 0 && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-surface-900 text-surface-400">
+                          {measurements.length}
+                        </span>
+                      )}
+                    </button>
                   </div>
-                ) : selectedFile && measurements.length > 0 ? (
-                  <div className="glass-card p-4">
-                    <h2 className="text-sm font-semibold text-surface-400 uppercase tracking-wider mb-3">
-                      Measurements
-                    </h2>
-                    <MeasurementTable
-                      measurements={measurements}
-                      sourceCrs={selectedFile.source_crs}
-                    />
-                  </div>
-                ) : selectedFile ? (
-                  <div className="glass-card p-8 text-center text-surface-500">
-                    {selectedFile.status === 'error'
-                      ? `Processing failed: ${selectedFile.error_message}`
-                      : 'No measurements available for this file.'}
-                  </div>
-                ) : null}
+
+                  {highlightedIndices.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setHighlightedIndices([])}
+                      className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center space-x-1"
+                    >
+                      <span>Clear map highlights ({highlightedIndices.length})</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Tab Content */}
+                {workspaceTab === 'copilot' ? (
+                  <AICopilot
+                    activeFile={selectedFile}
+                    onHighlightFeatures={setHighlightedIndices}
+                    highlightedIndices={highlightedIndices}
+                  />
+                ) : (
+                  <>
+                    {/* Measurements table */}
+                    {detailLoading ? (
+                      <div className="glass-card p-8">
+                        <div className="flex items-center justify-center gap-3">
+                          <div className="w-5 h-5 border-2 border-brand-400 border-t-transparent rounded-full animate-spin" />
+                          <span className="text-surface-400">Loading measurements...</span>
+                        </div>
+                      </div>
+                    ) : selectedFile && measurements.length > 0 ? (
+                      <div className="glass-card p-4">
+                        <h2 className="text-sm font-semibold text-surface-400 uppercase tracking-wider mb-3">
+                          Measurements
+                        </h2>
+                        <MeasurementTable
+                          measurements={measurements}
+                          sourceCrs={selectedFile.source_crs}
+                        />
+                      </div>
+                    ) : selectedFile ? (
+                      <div className="glass-card p-8 text-center text-surface-500">
+                        {selectedFile.status === 'error'
+                          ? `Processing failed: ${selectedFile.error_message}`
+                          : 'No measurements available for this file.'}
+                      </div>
+                    ) : null}
+                  </>
+                )}
 
                 {/* Diagnostics panel */}
                 {selectedFile && <DiagnosticsPanel file={selectedFile} />}

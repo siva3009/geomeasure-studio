@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db
-from app.routers import health, upload, files, measurements, api_keys, external_v1
+from app.routers import health, upload, files, measurements, api_keys, external_v1, assistant
 
 # Configure logging
 logging.basicConfig(
@@ -35,6 +35,12 @@ async def lifespan(app: FastAPI):
             raise e
         logger.warning("Continuing in local/test environment with in-memory storage fallback enabled.")
     yield
+    # Cleanup AI gateway HTTP client on shutdown
+    try:
+        from app.services.ai.gateway import ai_gateway
+        await ai_gateway.aclose()
+    except Exception:
+        pass
     logger.info("Shutting down GeoMeasure Studio API.")
 
 
@@ -64,6 +70,7 @@ app.include_router(files.router)
 app.include_router(measurements.router)
 app.include_router(api_keys.router)
 app.include_router(external_v1.router)
+app.include_router(assistant.router)
 
 
 @app.get("/")
